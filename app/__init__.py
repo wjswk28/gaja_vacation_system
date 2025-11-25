@@ -47,6 +47,8 @@ def create_app():
         "SECRET_KEY",
         "gaja_yonsei_hospital_secure_key_2025"
     )
+    
+    app.config["HOLIDAY_API_KEY"] = os.environ.get("HOLIDAY_API_KEY", "")
 
     if os.path.exists("/var/data"):
         DB_PATH = "/var/data/database.db"
