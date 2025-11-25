@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-lg border border-sky-100 py-4 px-4 mt-[0px] sm:mt-[8px] md:mt-[8px]">
+
+  <!-- ✅ 탭 헤더 -->
+  <div class="flex justify-center mb-6">
+    <button id="tabGrant" 
+            class="tab-btn active px-4 py-2 text-sky-600 font-semibold text-sm sm:text-base whitespace-nowrap border-b-2 border-sky-500">
+      대체연차 부여
+    </button>
+    <button id="tabHistory" 
+            class="tab-btn px-4 py-2 text-slate-500 font-semibold text-sm sm:text-base whitespace-nowrap hover:text-sky-600">
+      대체연차 이력
+    </button>
+  </div>
+
+  <!-- ✅ 탭 1 : 대체연차 부여 -->
+  <section id="grantSection" class="tab-section block">
+    <form id="grantForm" method="POST" class="space-y-5">
+      <!-- 상단 입력 -->
+      <div class="flex flex-wrap justify-center gap-4 text-sm">
+        <div class="flex items-center gap-2">
+          <label class="font-medium text-slate-700">부여 일수</label>
+          <input type="number" name="add_days" step="0.25" min="0.25"
+                 class="border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 w-24 text-center focus:ring-2 focus:ring-sky-400 focus:outline-none shadow-sm" required>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="font-medium text-slate-700">적용일자</label>
+          <input type="date" name="apply_date"
+                 class="border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none shadow-sm" required>
+        </div>
+        <div class="flex items-center gap-2 flex-grow">
+          <label class="font-medium text-slate-700 whitespace-nowrap">사유</label>
+          <input type="text" name="reason" placeholder="예: 공휴일 대체, 병원 행사 등"
+                 class="flex-grow border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-400 focus:outline-none shadow-sm">
+        </div>
+        <button type="submit"
+                class="bg-sky-600 hover:bg-sky-700 text-white font-semibold px-6 py-2 rounded-lg shadow-md transition">
+          선택자에게 부여
+        </button>
+      </div>
+
+      <!-- ✅ 부서별 직원 카드 -->
+      <div class="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for dept, dept_users in users_by_dept.items() %}
+        <div class="border border-sky-100 rounded-xl shadow-sm p-4 bg-gradient-to-br from-sky-50 to-white">
+          <h3 class="text-sky-700 font-semibold text-lg mb-3 cursor-pointer select-none hover:text-sky-600"
+              onclick="toggleDepartment('{{ dept }}')">
+            {{ dept }}
+          </h3>
+          <div id="dept-{{ loop.index }}" class="flex flex-wrap gap-2">
+            {% for user in dept_users %}
+            <div class="user-card border border-sky-200 bg-white rounded-lg px-3 py-1.5 text-sm cursor-pointer select-none transition-all hover:bg-sky-50"
+                 data-id="{{ user.id }}" data-dept="{{ dept }}"
+                 onclick="toggleUser(this)">
+              {{ user.name }}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="user_ids" id="selectedUsers">
+    </form>
+  </section>
+
+  <!-- ✅ 탭 2 : 대체연차 이력 -->
+  <section id="historySection" class="tab-section hidden">
+    {% if logs %}
+    <div class="space-y-3">
+      {% for log in logs %}
+      <div x-data="{ open: false }"
+           class="border border-sky-100 rounded-lg shadow-sm overflow-hidden transition hover:shadow-md bg-white">
+        <button @click="open = !open"
+                class="w-full flex justify-between items-center px-4 py-2 bg-sky-50 hover:bg-sky-100 transition">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:gap-4 text-left">
+            <span class="font-semibold text-slate-700 text-sm sm:text-base">{{ log.grant_date.strftime('%Y-%m-%d') }}</span>
+            <span class="text-slate-600 text-sm truncate max-w-[200px] sm:max-w-[300px]">
+              {{ log.reason }}
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-sky-700 font-semibold text-sm">{{ log.add_days }} 일</span>
+            <svg x-show="!open" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+            <svg x-show="open" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+            </svg>
+          </div>
+        </button>
+
+        <div x-show="open" x-transition
+             class="px-5 py-3 bg-white border-t border-sky-100 text-sm text-slate-700 space-y-1">
+          <p><span class="font-medium text-slate-500">📅 적용일자:</span> {{ log.apply_date }}</p>
+          <p><span class="font-medium text-slate-500">📝 사유:</span> {{ log.reason }}</p>
+          <p><span class="font-medium text-slate-500">👥 적용 부서 및 인원:</span> {{ log.department_summary }}</p>
+          <p><span class="font-medium text-slate-500">⏱️ 부여일수:</span> <span class="text-sky-600 font-semibold">{{ log.add_days }} 일</span></p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-center text-slate-400 text-sm py-4">아직 부여된 대체연차 이력이 없습니다.</p>
+    {% endif %}
+  </section>
+
+  <!-- ✅ Alpine.js -->
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</div>
+
+<!-- ✅ JS -->
+<script>
+const tabs = {
+  grant: document.getElementById("tabGrant"),
+  history: document.getElementById("tabHistory"),
+  grantSec: document.getElementById("grantSection"),
+  historySec: document.getElementById("historySection"),
+};
+tabs.grant.addEventListener("click", () => switchTab("grant"));
+tabs.history.addEventListener("click", () => switchTab("history"));
+
+function switchTab(tab) {
+  if (tab === "grant") {
+    tabs.grant.classList.add("text-sky-600", "border-b-2", "border-sky-500");
+    tabs.history.classList.remove("text-sky-600", "border-b-2", "border-sky-500");
+    tabs.grantSec.classList.remove("hidden");
+    tabs.historySec.classList.add("hidden");
+  } else {
+    tabs.history.classList.add("text-sky-600", "border-b-2", "border-sky-500");
+    tabs.grant.classList.remove("text-sky-600", "border-b-2", "border-sky-500");
+    tabs.historySec.classList.remove("hidden");
+    tabs.grantSec.classList.add("hidden");
+  }
+}
+
+// ✅ 선택 로직
+let selectedUsers = new Set();
+function toggleUser(el) {
+  const id = el.dataset.id;
+  if (selectedUsers.has(id)) {
+    selectedUsers.delete(id);
+    el.classList.remove("selected");
+  } else {
+    selectedUsers.add(id);
+    el.classList.add("selected");
+  }
+  document.getElementById("selectedUsers").value = Array.from(selectedUsers).join(",");
+}
+function toggleDepartment(deptName) {
+  const deptBox = document.querySelector(`[onclick="toggleDepartment('${deptName}')"]`).parentElement;
+  const users = deptBox.querySelectorAll(".user-card");
+  const allSelected = Array.from(users).every(u => selectedUsers.has(u.dataset.id));
+  users.forEach(u => {
+    const id = u.dataset.id;
+    if (allSelected) {
+      selectedUsers.delete(id);
+      u.classList.remove("selected");
+    } else {
+      selectedUsers.add(id);
+      u.classList.add("selected");
+    }
+  });
+  document.getElementById("selectedUsers").value = Array.from(selectedUsers).join(",");
+}
+</script>
+
+<style>
+.tab-btn { transition: all 0.15s ease-in-out; }
+.tab-btn.active, .tab-btn:hover { color: #0284c7; }
+.user-card:hover { border-color: #7dd3fc; }
+.user-card.selected { border-color: #0284c7; background-color: #e0f2fe; box-shadow: 0 0 0 2px rgba(14,165,233,0.3); }
+</style>
+{% endblock %}

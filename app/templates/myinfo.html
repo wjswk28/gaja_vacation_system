@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}내 정보 - 가자연세병원 연차관리 시스템{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto bg-white rounded-xl shadow-md border border-sky-100 py-4 px-4 md:px-6 mt-[0px] sm:mt-[8px] md:mt-[8px]">
+    <!-- 첫 줄: 아이콘 + 타이틀 정렬 -->
+    <div class="flex items-center justify-center md:justify-start gap-2 mb-3">
+        <i data-lucide="user" class="w-7 h-7 text-sky-700"></i>
+        <span class="text-sky-800 font-bold text-xl md:text-2xl">내 정보</span>
+    </div>
+  <!-- ✅ 정보 카드 그리드 -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    {% for label, value in {
+      "아이디": user.id,
+      "이름": user.name,
+      "생일": user.birth or "-",
+      "입사일": user.join_date or "-",
+      "입사 후": user.dday ~ "일",
+      "총 발생 연차": user.total_leave ~ "일",
+      "총 발생 대체 연차": ("%.2f"|format(user.total_alt_leave or 0)) ~ "일",
+      "사용 연차": user.used_leave ~ "일",
+      "현재 남은 연차": user.remaining_leave ~ "(" ~ user.alt_left ~ ")" ~ "일"
+    }.items() %}
+    <div class="flex flex-col bg-gradient-to-br from-sky-50 to-white border border-sky-100 rounded-xl shadow-sm px-5 py-4">
+      <span class="text-slate-500 text-xs font-medium mb-1">{{ label }}</span>
+      <!-- ✅ 값만 오른쪽 정렬 -->
+      <span class="font-bold text-xl text-right tracking-wide
+        {% if label == '현재 남은 연차' and user.remaining_leave < 0 %}
+            text-red-600
+        {% elif label == '현재 남은 연차' %}
+            text-sky-800
+        {% else %}
+            text-sky-800
+        {% endif %}
+    ">
+        {% if label == '현재 남은 연차' %}
+            {{ "%.2f"|format(user.remaining_leave) }}
+            (<span class="text-slate-500">{{ "%.2f"|format(user.alt_left) }}</span>) 일
+        {% else %}
+            {{ value }}
+        {% endif %}
+      </span>
+
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ✅ 구분선 -->
+  <hr class="my-8 border-sky-100">
+
+  <!-- ✅ 수정 가능한 카드형 폼 -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <!-- 주소 카드 -->
+    <div class="flex flex-col bg-gradient-to-br from-sky-50 to-white border border-sky-100 rounded-xl shadow-sm px-5 py-4">
+      <label class="text-slate-500 text-xs font-medium mb-1">주소</label>
+      <!-- ✅ 입력칸은 좌측 정렬 유지 -->
+      <input type="text" name="address" value="{{ user.address or '' }}"
+             class="border border-sky-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-400 focus:outline-none transition w-full text-left">
+    </div>
+
+    <!-- 비밀번호 카드 -->
+    <div class="flex flex-col bg-gradient-to-br from-sky-50 to-white border border-sky-100 rounded-xl shadow-sm px-5 py-4">
+      <label class="text-slate-500 text-xs font-medium mb-1">비밀번호 변경</label>
+      <input type="password" name="password" placeholder="새 비밀번호 입력"
+             class="border border-sky-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-400 focus:outline-none transition w-full text-left">
+    </div>
+  </div>
+
+  <!-- ✅ 저장 버튼 (중앙 정렬) -->
+  <div class="text-center mt-8">
+    <button type="submit"
+            class="bg-sky-600 hover:bg-sky-700 text-white font-medium px-8 py-2.5 rounded-lg shadow-md transition">
+      저장
+    </button>
+  </div>
+
+    <!-- 대체연차 로그 -->
+    <div class="mt-10">
+      <h3 class="text-lg font-semibold text-sky-700 mb-3 flex items-center gap-2">
+        <i data-lucide="clock" class="w-5 h-5 text-sky-500"></i> 대체 연차 발생 이력
+      </h3>
+
+      {% if logs and logs|length %}
+      <div class="divide-y divide-sky-50 border border-sky-100 rounded-xl bg-sky-50/40">
+        {% for log in logs %}
+        <div class="p-3 hover:bg-white/80 transition">
+          <p><span class="font-semibold text-sky-700">적용일자:</span> {{ log.apply_date if log.apply_date else '-' }}</p>
+          <p><span class="font-semibold text-sky-700">사유:</span> {{ log.reason or '-' }}</p>
+          <p><span class="font-semibold text-sky-700">부여일수:</span> {{ log.add_days }}</p>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-slate-500 text-sm text-center py-4">등록된 대체연차 이력이 없습니다.</p>
+      {% endif %}
+    </div>
+
+</div>
+
+<!-- lucide 아이콘 초기화 -->
+<script>
+  document.addEventListener("DOMContentLoaded", () => lucide.createIcons());
+</script>
+{% endblock %}

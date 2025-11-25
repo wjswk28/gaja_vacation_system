@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-sky-100 py-4 px-4 md:px-6 mt-[0px] sm:mt-[8px] md:mt-[8px]">
+
+  <!-- 제목 영역 -->
+  <h2 class="text-xl font-bold text-slate-800 mb-4 text-center md:text-left">
+    <!-- 첫 줄: 아이콘 + 타이틀 정렬 -->
+    <div class="flex items-center justify-center md:justify-start gap-2 mb-2">
+        <i data-lucide="users" class="w-6 h-6 text-sky-700"></i>
+        <span class="text-sky-800 font-bold text-xl md:text-2xl">직원 관리</span>
+    </div>
+
+    <!-- 🔹 부서 선택 영역 (총관리자 전용) -->
+    {% if is_superadmin and departments %}
+      <form method="get"
+            action="{{ url_for('employee.employee_list') }}"
+            class="flex items-center gap-2 text-sm md:text-base mb-4">
+
+        <label for="deptSelect" class="text-slate-700 font-medium">
+          부서 선택:
+        </label>
+
+        <select id="deptSelect"
+                name="dept"
+                class="border border-sky-300 rounded-lg px-3 py-1 text-sky-800 bg-white shadow-sm text-sm"
+                onchange="this.form.submit()">
+          {% for d in departments %}
+            <option value="{{ d }}" {% if d == current_dept %}selected{% endif %}>
+              {{ d }}
+            </option>
+          {% endfor %}
+        </select>
+      </form>
+    {% endif %}
+  </h2>
+
+
+  {% if employees %}
+<!-- 테이블 래퍼 -->
+<div class="rounded-xl border border-sky-100 shadow-inner overflow-hidden table-container">
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm border-collapse">
+        <thead class="bg-gradient-to-r from-sky-50 to-sky-100 text-sky-700 border-b border-sky-200">
+          <tr>
+            <th class="py-2 px-2 border-r border-sky-200">이름</th>
+            <th class="py-2 px-2 border-r border-sky-200">아이디</th>
+            <th class="py-2 px-2 border-r border-sky-200">입사일</th>
+            <th class="py-2 px-2 border-r border-sky-200">총 연차</th>
+            {% if is_superadmin %}
+              <th class="py-2 px-2 border-r border-sky-200">대체연차</th>
+            {% endif %}
+            <th class="py-2 px-2 border-r border-sky-200">사용</th>
+            <th class="py-2 px-2 border-r border-sky-200">잔여</th>
+            {% if is_superadmin %}
+              <th class="py-2 px-2 border-r border-sky-200">관리자 지정</th>
+              <th class="py-2 px-2 border-r border-sky-200">수정</th>
+              <th class="py-2 px-2">삭제</th>
+            {% endif %}
+          </tr>
+        </thead>
+
+        <tbody class="divide-y divide-slate-100">
+          {% for emp in employees %}
+          <tr class="text-center hover:bg-sky-50 transition" id="employee-row-{{ emp.id }}">
+            <td class="py-2 border-r border-slate-100 font-medium">{{ emp.name }}</td>
+            <td class="py-2 border-r border-slate-100">{{ emp.username }}</td>
+            <td class="py-2 border-r border-slate-100">
+              {% if emp.join_date and emp.join_date != 'None' %}
+                {% if emp.join_date.__class__.__name__ in ['date', 'datetime'] %}
+                  {{ emp.join_date.strftime('%y.%m.%d') }}
+                {% else %}
+                  {{ emp.join_date[:10].replace('-', '.')[2:] }}
+                {% endif %}
+              {% else %}-{% endif %}
+            </td>
+
+            <!-- 총연차 -->
+            <td class="py-2 border-r border-slate-100 text-sky-800 font-semibold">
+              {% if is_superadmin %}
+                {{ emp.total_leave }}
+              {% else %}
+                {{ emp.total_leave }} ({{ "%.2f"|format(emp.total_alt_leave or 0) }})
+              {% endif %}
+            </td>
+
+            <!-- 대체연차 (총관리자 전용) -->
+            {% if is_superadmin %}
+            <td class="py-2 border-r border-slate-100 text-amber-600 font-semibold">
+              {{ "%.2f"|format(emp.total_alt_leave or 0) }}
+            </td>
+            {% endif %}
+
+            <!-- 사용 -->
+            <td class="py-2 border-r border-slate-100 font-medium text-blue-600">
+            {{ "%.2f"|format(emp.used_total or 0) }}
+            </td>
+
+            <!-- 잔여 (음수일 때 빨간색) -->
+            <td class="py-2 border-r border-slate-100 font-semibold">
+                <span class="{% if emp.remaining_days < 0 %}text-red-600{% else %}text-green-600{% endif %}">
+                    {{ "%.2f"|format(emp.remaining_days or 0) }}
+                </span>
+                <span class="text-slate-500">
+                    ({{ "%.2f"|format(emp.alt_left or 0) }})
+                </span>
+            </td>
+
+
+            {% if is_superadmin %}
+              <!-- 관리자 지정 -->
+              <td class="py-2 border-r border-slate-100">
+                <button
+                  class="toggle-admin-btn text-xs px-2 py-1 rounded border border-slate-300 transition
+                        {% if emp.is_admin %}
+                          bg-amber-300 hover:bg-amber-400 text-slate-800
+                        {% else %}
+                          bg-gray-100 hover:bg-gray-200 text-slate-600
+                        {% endif %}"
+                  data-user-id="{{ emp.id }}">
+                  {% if emp.is_admin %}해제{% else %}지정{% endif %}
+                </button>
+              </td>
+
+              <!-- 수정 -->
+              <td class="py-2 border-r border-slate-100">
+                <a href="{{ url_for('employee.edit_employee', emp_id=emp.id) }}"
+                   class="text-xs px-2 py-1 rounded border border-slate-300 bg-sky-100 hover:bg-sky-200 text-sky-700 transition">
+                   ✏ 수정
+                </a>
+              </td>
+
+              <!-- 삭제 -->
+              <td class="py-2">
+                <button
+                  class="text-rose-600 hover:text-rose-700 hover:underline text-xs delete-employee-btn"
+                  data-user-id="{{ emp.id }}"
+                  data-delete-url="{{ url_for('employee.delete_employee', emp_id=emp.id) }}">
+                  삭제
+                </button>
+              </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-center text-slate-500 text-sm mt-3">등록된 직원이 없습니다.</p>
+  {% endif %}
+</div>
+
+<!-- ✅ 반응형 (모바일 스크롤 + 줄바꿈 방지) -->
+<style>
+/* 모든 셀 줄바꿈 금지 */
+th, td {
+  white-space: nowrap;
+}
+
+/* 모바일 전용 스크롤 활성화 */
+@media (max-width: 768px) {
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  table {
+    min-width: 700px; /* 스크롤 여유 */
+    font-size: 0.85rem;
+  }
+}
+</style>
+
+<!-- JS 그대로 유지 -->
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // ✅ 관리자 지정 버튼
+  document.querySelectorAll(".toggle-admin-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.userId;
+      try {
+        const res = await axios.post(`/employee/toggle_admin/${id}`);
+        if (res.data && res.data.status === "success") {
+          // 지금 클릭 후 상태가 "관리자로 지정된 상태"인지
+          const isNowAdmin = btn.textContent.trim() === "지정";
+
+          // 텍스트 변경
+          btn.textContent = isNowAdmin ? "해제" : "지정";
+
+          // 🔹 색/스타일을 명확하게 갈아끼우기
+          if (isNowAdmin) {
+            // 👉 이제 '관리자' 상태
+            btn.classList.remove("bg-gray-100", "hover:bg-gray-200", "text-slate-600");
+            btn.classList.add("bg-amber-300", "hover:bg-amber-400", "text-slate-800");
+          } else {
+            // 👉 다시 일반 직원 상태
+            btn.classList.remove("bg-amber-300", "hover:bg-amber-400", "text-slate-800");
+            btn.classList.add("bg-gray-100", "hover:bg-gray-200", "text-slate-600");
+          }
+
+          alert(res.data.message || "관리자 권한이 변경되었습니다.");
+        } else {
+          alert(res.data.message || "처리 실패");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("서버 통신 오류가 발생했습니다.");
+      }
+    });
+  });
+
+  document.querySelectorAll(".delete-employee-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.userId;
+      if (!confirm("정말 삭제하시겠습니까?")) return;
+      try {
+        const res = await axios.post(`/employee/delete/${id}`);
+        if (res.data && res.data.status === "success") {
+          document.getElementById(`employee-row-${id}`).remove();
+          alert("직원이 삭제되었습니다.");
+        } else {
+          alert(res.data.message || "삭제 실패");
+        }
+      } catch (err) {
+        alert("서버 통신 오류가 발생했습니다.");
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

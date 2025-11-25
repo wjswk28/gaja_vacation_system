@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}🎂 생일자 현황{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-sky-100 py-6 px-4 md:px-6 mt-[0px] sm:mt-[8px] md:mt-[8px]">
+
+  <!-- 제목 -->
+  <div class="flex items-center justify-center md:justify-start gap-2 mb-4">
+    <i data-lucide="gift" class="w-7 h-7 text-pink-600"></i>
+    <span class="text-sky-800 font-bold text-2xl">생일자 현황</span>
+  </div>
+
+  <form method="get" action="{{ url_for('birthday.birthday_report') }}"
+      class="flex justify-center items-center gap-2 mb-8">
+
+    <select name="month"
+            class="border border-sky-300 rounded-lg px-3 py-1 text-sky-700 font-semibold bg-white shadow-sm">
+        {% for m in range(1, 13) %}
+            <option value="{{ m }}" {% if m == month %}selected{% endif %}>
+                {{ m }}월
+            </option>
+        {% endfor %}
+    </select>
+
+    <button type="submit"
+            class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-1 rounded-lg shadow-md">
+        조회
+    </button>
+  </form>
+
+
+  <!-- 병원 생일축하금 -->
+  <div class="mb-8 border border-rose-100 rounded-xl p-4 bg-rose-50/50 shadow-inner">
+    <h2 class="text-lg font-semibold text-rose-700 flex items-center gap-2 mb-3">
+      <i data-lucide="cake" class="w-5 h-5 text-rose-500"></i>
+      병원장님 생일축하금
+      <span class="hidden md:inline"> (₩30,000 / 인) — 조건: 입사 31일 이상 </span>
+    </h2>
+
+    {% if birthday_members %}
+      <div class="flex flex-wrap gap-2 mb-4">
+        {% for name in birthday_members %}
+          <span class="px-3 py-1 bg-rose-100 text-rose-700 rounded-full font-medium text-sm shadow-sm">
+            🎉 {{ name }}
+          </span>
+        {% endfor %}
+      </div>
+
+      <!-- ✅ 요약 표시로 변경됨 -->
+      <div class="text-slate-700 text-sm md:text-base">
+        총 {{ birthday_members|length }}명 /
+        합계 <span class="text-rose-600 font-bold">{{ "{:,}".format(hospital_total) }}원</span>
+      </div>
+
+    {% else %}
+      <p class="text-slate-500 text-sm">이번 달 병원 생일축하금 지급 대상이 없습니다.</p>
+    {% endif %}
+  </div>
+
+
+  <!-- 상조회비 축하금 -->
+  <div class="border border-emerald-100 rounded-xl p-4 bg-emerald-50/50 shadow-inner">
+    <h2 class="text-lg font-semibold text-emerald-700 flex items-center gap-2 mb-3">
+      <i data-lucide="heart-handshake" class="w-5 h-5 text-emerald-600"></i>
+      상조회 생일축하금
+      <span class="hidden md:inline"> (근속 6개월~3년 미만: ₩50,000  / 366일~: ₩70,000) </span>
+    </h2>
+
+    {% if union_members %}
+      <div class="flex flex-wrap gap-2 mb-4">
+        {% for name, amount in union_members %}
+          <span class="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full font-medium text-sm shadow-sm">
+            💝 {{ name }} ({{ "{:,}".format(amount) }}원)
+          </span>
+        {% endfor %}
+      </div>
+      <div class="text-slate-700 text-sm md:text-base">
+        총 {{ union_members|length }}명 /
+        합계 <span class="text-emerald-600 font-bold">{{ "{:,}".format(union_total) }}원</span>
+      </div>
+    {% else %}
+      <p class="text-slate-500 text-sm">이번 달 상조회비 축하금 지급 대상이 없습니다.</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    lucide.createIcons();
+  });
+</script>
+{% endblock %}

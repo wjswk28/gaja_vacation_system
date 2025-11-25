@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block title %}신규입사 체크리스트{% endblock %}
+
+{% block content %}
+
+<div class="max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-sky-100 py-4 px-4 md:px-6 mt-[0px] sm:mt-[8px] md:mt-[8px]">
+
+  <!-- 제목 -->
+  <div class="flex items-center gap-2 mb-6">
+    <i data-lucide="check-square" class="w-7 h-7 text-sky-700"></i>
+    <span class="text-sky-800 font-bold text-2xl">신규입사 체크리스트</span>
+  </div>
+
+  <form method="POST">
+
+    <!-- 체크리스트 테이블 -->
+    <div class="overflow-x-auto">
+      <table class="w-full border border-sky-200 rounded-lg overflow-hidden text-sm min-w-[450px]">
+        <thead class="bg-sky-600 text-white">
+          <tr>
+            <th class="p-3 text-center font-semibold">항목명</th>
+            <th class="p-3 text-center font-semibold">비 고</th>
+            <th class="p-3 text-center font-semibold">확인</th>
+          </tr>
+        </thead>
+
+        <tbody class="divide-y divide-sky-100">
+
+          <!-- 면허증 -->
+          <tr class="hover:bg-sky-50">
+            <td class="p-3 text-center whitespace-normal leading-tight">
+              면허증, 자격증 사본
+            </td>
+            <td class="p-3 text-center whitespace-normal leading-tight"></td>
+            <td class="p-3 text-center">
+              <input type="hidden" name="item_key" value="license">
+              <input type="checkbox" name="item_state" value="license"
+                class="w-5 h-5 text-sky-600"
+                {% if items_json.license %}checked{% endif %}>
+            </td>
+          </tr>
+
+          <!-- 주민등록 등본 -->
+          <tr class="hover:bg-sky-50">
+            <td class="p-3 text-center whitespace-normal leading-tight">
+              주민등록 등본
+            </td>
+            <td class="p-3 text-center whitespace-normal leading-tight"></td>
+            <td class="p-3 text-center">
+              <input type="hidden" name="item_key" value="idcopy">
+              <input type="checkbox" name="item_state" value="idcopy"
+                class="w-5 h-5 text-sky-600"
+                {% if items_json.idcopy %}checked{% endif %}>
+            </td>
+          </tr>
+
+          <!-- 가족관계 -->
+          <tr class="hover:bg-sky-50">
+            <td class="p-3 text-center whitespace-normal leading-tight">
+              가족관계확인서
+            </td>
+            <td class="p-3 text-center whitespace-normal leading-tight text-slate-600">
+              건강보험 피부양자 등록 시
+            </td>
+            <td class="p-3 text-center">
+              <input type="hidden" name="item_key" value="family">
+              <input type="checkbox" name="item_state" value="family"
+                class="w-5 h-5 text-sky-600"
+                {% if items_json.family %}checked{% endif %}>
+            </td>
+          </tr>
+
+          <!-- 개인정보동의서 -->
+          <tr class="hover:bg-sky-50">
+            <td class="p-3 text-center whitespace-normal leading-tight">
+              개인정보동의서
+            </td>
+            <td class="p-3 text-center leading-tight">
+              <a href="{{ url_for('newhire.download_file', filename='data_agree.doc') }}"
+                class="text-sky-600 hover:text-sky-800 underline font-medium">
+                다운로드
+              </a>
+            </td>
+            <td class="p-3 text-center">
+              <input type="hidden" name="item_key" value="privacy_form">
+              <input type="checkbox" name="item_state" value="privacy_form"
+                class="w-5 h-5 text-sky-600"
+                {% if items_json.privacy_form %}checked{% endif %}>
+            </td>
+          </tr>
+
+          <!-- 인사기록카드 -->
+          <tr class="hover:bg-sky-50">
+            <td class="p-3 text-center whitespace-normal leading-tight">
+              인사기록카드
+            </td>
+            <td class="p-3 text-center leading-tight">
+              <a href="{{ url_for('newhire.download_file', filename='new_card.hwp') }}"
+                class="text-sky-600 hover:text-sky-800 underline font-medium">
+                다운로드
+              </a>
+            </td>
+            <td class="p-3 text-center">
+              <input type="hidden" name="item_key" value="hr_form">
+              <input type="checkbox" name="item_state" value="hr_form"
+                class="w-5 h-5 text-sky-600"
+                {% if items_json.hr_form %}checked{% endif %}>
+            </td>
+          </tr>
+
+          <!-- 보안서약서 -->
+          <tr class="hover:bg-sky-50">
+            <td class="p-3 text-center whitespace-normal leading-tight">
+              보안서약서
+            </td>
+            <td class="p-3 text-center leading-tight">
+              <a href="{{ url_for('newhire.download_file', filename='secret_promise.hwp') }}"
+                class="text-sky-600 hover:text-sky-800 underline font-medium">
+                다운로드
+              </a>
+            </td>
+            <td class="p-3 text-center">
+              <input type="hidden" name="item_key" value="security_form">
+              <input type="checkbox" name="item_state" value="security_form"
+                class="w-5 h-5 text-sky-600"
+                {% if items_json.security_form %}checked{% endif %}>
+            </td>
+          </tr>
+
+          <!-- KB 통장 사본 -->
+          <tr class="hover:bg-sky-50">
+            <td class="p-3 text-center whitespace-normal leading-tight">
+              KB 통장 사본
+            </td>
+            <td class="p-3 text-center whitespace-normal leading-tight text-xs">
+              신규발급시 재직증명서 필요<br>(필요 시 총무과에 알려주세요)
+            </td>
+            <td class="p-3 text-center">
+              <input type="hidden" name="item_key" value="kb_bank">
+              <input type="checkbox" name="item_state" value="kb_bank"
+                class="w-5 h-5 text-sky-600"
+                {% if items_json.kb_bank %}checked{% endif %}>
+            </td>
+          </tr>
+
+          <!-- 범죄경력조회 -->
+          <tr class="hover:bg-sky-50">
+            <td class="p-3 text-center whitespace-normal leading-tight">
+              범죄경력조회
+            </td>
+            <td class="p-3 text-center">
+              <div class="flex items-center justify-center gap-2">
+                <button type="button" onclick="openGuideModal(1)" class="px-3 py-1 bg-sky-600 text-white rounded-md text-xs">1</button>
+                <button type="button" onclick="openGuideModal(2)" class="px-3 py-1 bg-sky-600 text-white rounded-md text-xs">2</button>
+                <button type="button" onclick="openGuideModal(3)" class="px-3 py-1 bg-sky-600 text-white rounded-md text-xs">3</button>
+              </div>
+            </td>
+            <td class="p-3 text-center">
+              <input type="hidden" name="item_key" value="crime_check">
+              <input type="checkbox" name="item_state" value="crime_check"
+                class="w-5 h-5 text-sky-600"
+                {% if items_json.crime_check %}checked{% endif %}>
+            </td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+
+    <!-- 신규입사자 검진 테이블 -->
+    <div class="overflow-x-auto mt-8">
+      <h2 class="text-xl font-bold text-slate-700 text-center mb-4">신규입사자 검진</h2>
+
+      <table class="w-full border border-sky-200 rounded-lg text-sm min-w-[450px]">
+        <thead class="bg-slate-100">
+          <tr>
+            <th class="border border-slate-300 p-2 text-center">검진</th>
+            <th class="border border-slate-300 p-2 text-center">장소</th>
+            <th class="border border-slate-300 p-2 text-center">비고</th>
+            <th class="border border-slate-300 p-2 text-center">참고사항</th>
+            <th class="border border-slate-300 p-2 text-center">검진가능일</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr>
+            <td class="border border-slate-300 p-2 text-center">결핵검사</td>
+            <td class="border border-slate-300 p-2 text-center">원내</td>
+            <td class="border border-slate-300 p-2 text-center">X-ray, IGRA 검사</td>
+            <td class="border border-slate-300 p-2 text-center">전직원</td>
+            <td class="border border-slate-300 p-2 text-center">-</td>
+          </tr>
+
+          <tr>
+            <td class="border border-slate-300 p-2 text-center">특수검진</td>
+            <td class="border border-slate-300 p-2 text-center text-sky-700 font-semibold">
+              하나로의료재단 종로
+            </td>
+            <td class="border border-slate-300 p-2 text-center">
+              3교대 근로자<br>
+              방사선사, MSD취급자
+            </td>
+            <td class="border border-slate-300 p-2 text-center">
+              오전 중 (금식필수)
+            </td>
+            <td class="border border-slate-300 p-2 text-center">해당부서만</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+
+    <!-- 하단 버튼 -->
+    <div class="mt-6 flex justify-end gap-3">
+      <button name="action" value="save"
+        class="bg-sky-600 hover:bg-sky-700 text-white px-5 py-2 rounded-lg shadow">
+        저장
+      </button>
+
+      <button name="action" value="reset"
+        class="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2 rounded-lg shadow">
+        리셋
+      </button>
+    </div>
+  </form>
+
+<!-- 모달 배경 -->
+<div id="guideModal" 
+    class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden items-center justify-center z-50">
+
+  <!-- 모달 박스 -->
+  <div class="bg-white rounded-xl shadow-xl p-4 max-w-4xl w-full max-h-[90vh] overflow-auto relative">
+    
+    <!-- 닫기 버튼 -->
+    <button onclick="closeGuideModal()"
+      class="absolute top-2 right-2 text-slate-500 hover:text-slate-700">
+      ✕
+    </button>
+
+    <h3 class="text-lg font-bold text-slate-800 mb-3 text-center">안내 이미지</h3>
+
+    <!-- 이미지 -->
+    <img id="guideImage" src="" class="w-full rounded-lg border" alt="안내 이미지">
+
+  </div>
+</div>
+<!-- 확대 이미지 모달 -->
+<div id="zoomModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50">
+  <img id="zoomImage" src="" class="max-w-full max-h-full rounded-xl shadow-2xl">
+</div>
+
+<script>
+function openGuideModal(num) {
+  const modal = document.getElementById("guideModal");
+  const img = document.getElementById("guideImage");
+
+  img.src = `{{ url_for('newhire.download_file', filename='') }}crime_guide_${num}.png`;
+
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+}
+
+function closeGuideModal() {
+  const modal = document.getElementById("guideModal");
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
+}
+
+// --------------------------
+// 이미지 확대 기능
+// --------------------------
+document.addEventListener("DOMContentLoaded", () => {
+  const guideImg = document.getElementById("guideImage");
+  const zoomModal = document.getElementById("zoomModal");
+  const zoomImg = document.getElementById("zoomImage");
+
+  // 이미지 클릭 → 확대모달 열림
+  guideImg.addEventListener("click", () => {
+    zoomImg.src = guideImg.src;
+    zoomModal.classList.remove("hidden");
+    zoomModal.classList.add("flex");
+  });
+
+  // 검은 배경 클릭 → 확대모달 닫힘
+  zoomModal.addEventListener("click", () => {
+    zoomModal.classList.add("hidden");
+    zoomModal.classList.remove("flex");
+  });
+});
+</script>
+
+
+</div>
+
+{% endblock %}

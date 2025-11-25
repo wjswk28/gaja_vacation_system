@@ -1,0 +1,1597 @@
+{% extends "base.html" %}
+{% block title %}가자연세병원 연차관리 시스템{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto mt-1 pb-6 space-y-3">
+  <!-- 상단 카드 -->
+  <div
+    class="max-w-md sm:max-w-lg md:max-w-1xl lg:max-w-1xl
+           mx-auto bg-white/90 rounded-3xl shadow-lg border border-sky-100
+           px-4 py-3 sm:px-6 sm:py-5
+           flex flex-col items-center text-center
+           mt-[4px] sm:mt-[8px] md:mt-[8px]"
+    style="isolation: isolate;">
+    <!-- 제목 -->
+    <div class="flex items-center justify-center gap-2">
+      {% if current_user.is_superadmin %}
+        <div class="flex flex-col items-center gap-2">
+          <!-- 첫 줄: 아이콘 + 타이틀 정렬 -->
+            <div class="flex items-center justify-center md:justify-start gap-2 mb-3">
+                <i data-lucide="calendar-days" class="w-7 h-7 text-sky-700"></i>
+                <span class="text-sky-800 font-bold text-xl md:text-2xl">부서별 휴가 캘린더</span>
+            </div>
+
+
+          <!-- 🔽 부서 선택 드롭박스 -->
+          <div class="flex items-center gap-2">
+            <label for="deptSelect" class="text-sm text-slate-600">부서 선택:</label>
+            <select id="deptSelect"
+              class="border border-sky-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none">
+              {% for d in dept_list %}
+                <option value="{{ d }}" {% if d == dept %}selected{% endif %}>{{ d }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const select = document.getElementById("deptSelect");
+                if (!select) return;
+
+                select.addEventListener("change", function() {
+                const selected = this.value || "";
+                // 🔹 블루프린트 엔드포인트로 이동하도록 변경
+                const baseUrl = "{{ url_for('calendar.calendar_page') }}";
+                window.location.href = `${baseUrl}?dept=${encodeURIComponent(selected)}`;
+                });
+            });
+          </script>
+
+        </div>
+      {% else %}
+        <!-- 📱 모바일에서는 숨기고, md 이상에서만 보이게 -->
+        <div class="hidden md:flex items-center justify-center md:justify-start gap-2 mb-3">
+          <i data-lucide="calendar-days" class="w-7 h-7 text-sky-700"></i>
+          <span class="text-sky-800 font-bold text-xl md:text-2xl">
+            {{ dept }} 휴가 캘린더
+          </span>
+        </div>
+      {% endif %}
+
+    </div>
+
+    {% if not current_user.is_superadmin %}
+    <p class="text-sky-600 font-semibold flex items-center justify-center gap-1 mt-0 mb-1 md:mb-3 text-lg">
+        <span class="align-middle leading-none">{{ username }}</span>
+        <span class="text-slate-500 text-base align-middle leading-none">({{ dept }})</span>
+    </p>
+    {% endif %}
+
+
+    <!-- 버튼 영역 -->
+    <div class="flex justify-center gap-2 mt-1 md:mt-2 flex-wrap">
+      {% if current_user.is_admin or current_user.is_superadmin %}
+      <!-- 프린트 버튼 -->
+      <button id="exportExcelBtn"
+        class="flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-full transition">
+        <i data-lucide="printer" class="w-5 h-5"></i>
+        <span class="hidden md:inline">근무표 출력</span>
+      </button>
+
+      <!-- 전체/내 일정 토글 버튼 -->
+      <button id="toggleViewBtn"
+        class="flex items-center gap-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full transition">
+        <i id="toggleIcon" data-lucide="calendar-days" class="w-5 h-5"></i>
+        <span id="toggleText" class="hidden md:inline">전체 일정</span>
+      </button>
+
+      <!-- 신청대기 버튼 -->
+      <button id="pendingPageBtn"
+        class="flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-full transition">
+        <i data-lucide="clipboard-list" class="w-5 h-5"></i>
+        <span class="hidden md:inline">신청대기</span>
+      </button>
+      {% else %}
+      <button id="toggleViewBtn"
+        class="flex items-center gap-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full transition">
+        <i id="toggleIcon" data-lucide="calendar-days" class="w-5 h-5"></i>
+        <span id="toggleText" class="hidden md:inline">전체 일정</span>
+      </button>
+      {% endif %}
+    </div>
+        <!-- 📱 모바일 전용: 휴가 종류 색상 안내 뱃지 -->
+    <div class="mt-2 flex flex-wrap justify-center gap-1 text-[11px] text-slate-600 md:hidden">
+      <span class="px-2 py-0.5 rounded-full bg-red-500 text-white">연차</span>
+      <span class="px-2 py-0.5 rounded-full bg-orange-500 text-white">반차</span>
+      <span class="px-2 py-0.5 rounded-full bg-yellow-400 text-slate-800">반반차</span>
+      <span class="px-2 py-0.5 rounded-full bg-emerald-500 text-white">병가</span>
+      <span class="px-2 py-0.5 rounded-full bg-indigo-500 text-white">예비군</span>
+      <span class="px-2 py-0.5 rounded-full bg-purple-500 text-white">토연차</span>
+    </div>
+  </div>
+
+  <div id="calendar-wrapper"
+      class="rounded-2xl shadow-md border border-sky-100 bg-white/90 backdrop-blur
+            pt-1 pb-2 px-2 sm:pt-2 sm:pb-3 sm:px-4 mt-2">
+    <div id="calendar" class="w-full"></div>
+  </div>
+
+</div>
+
+<!-- ✅ 관리자 통합 탭 모달 (뷰포트 중앙 + 회색 반투명 배경) -->
+<div id="adminModal"
+     class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-3">
+  <div class="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-md text-center">
+    <h2 class="text-xl font-semibold mb-3">일정 관리</h2>
+
+    <!-- 🔹 탭 메뉴 -->
+    <div class="flex justify-center mb-4 border-b">
+      <button id="tabVacation" class="flex-1 py-2 border-b-2 border-sky-500 font-semibold text-sky-600">
+        휴가 지정
+      </button>
+      <button id="tabWorker" class="flex-1 py-2 border-b-2 border-transparent text-gray-500 hover:text-sky-600">
+        근무자 지정
+      </button>
+      <button id="tabFlex" class="flex-1 py-2 border-b-2 border-transparent text-gray-500 hover:text-sky-600">
+        탄력근무
+      </button>
+    </div>
+
+    <!-- 🔹 날짜 표시 -->
+    <p id="adminModalDate" class="text-sm text-slate-500 mb-3"></p>
+
+    <!-- 🟢 탭 1: 휴가 지정 -->
+    <div id="vacationTab">
+      <h3 class="text-base font-semibold mb-2">휴가 종류</h3>
+      <div class="flex flex-wrap justify-center gap-2 mb-4">
+        <button class="vac-btn flex items-center justify-center bg-red-100 hover:bg-red-200 text-red-700 py-1 px-2 rounded" data-type="연차">연차</button>
+        <button class="vac-btn flex items-center justify-center bg-orange-100 hover:bg-orange-200 text-orange-700 py-1 px-2 rounded" data-type="반차(전)">반차(전)</button>
+        <button class="vac-btn flex items-center justify-center bg-orange-100 hover:bg-orange-200 text-orange-700 py-1 px-2 rounded" data-type="반차(후)">반차(후)</button>
+        <button class="vac-btn flex items-center justify-center bg-yellow-100 hover:bg-yellow-200 text-yellow-700 py-1 px-2 rounded" data-type="반반차">반반차</button>
+        <button class="vac-btn flex items-center justify-center bg-emerald-100 hover:bg-emerald-200 text-emerald-700 py-1 px-2 rounded" data-type="병가">병가</button>
+        <button class="vac-btn flex items-center justify-center bg-indigo-100 hover:bg-indigo-200 text-indigo-700 py-1 px-2 rounded" data-type="예비군">예비군</button>
+        <button class="vac-btn flex items-center justify-center bg-purple-100 hover:bg-purple-200 text-purple-700 py-1 px-2 rounded" data-type="토연차">토연차</button>
+      </div>
+    </div>
+
+    <!-- 🟠 탭 2: 근무자 지정 -->
+    <div id="workerTab" class="hidden">
+      <h3 class="text-base font-semibold mb-2">근무자 선택</h3>
+      <div class="grid grid-cols-2 gap-2 mb-3">
+        {% for name in user_names %}
+        <button class="worker-btn bg-blue-100 hover:bg-blue-200 text-blue-700 py-1 rounded" data-name="{{ name }}">
+          {{ name }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- 🟣 탭 3: 탄력근무 -->
+    <div id="flexTab" class="hidden">
+      <h3 class="text-base font-semibold mb-2">탄력근무 지정</h3>
+
+      <select id="flexUser" class="border rounded w-full mb-2 p-1 text-sm">
+        <option disabled selected>직원 선택</option>
+        {% for name in user_names %}
+        <option value="{{ name }}">{{ name }}</option>
+        {% endfor %}
+      </select>
+
+      <select id="flexHours" class="border rounded w-full p-1 text-sm">
+        {% for h in range(-10, 11) %}
+        <option value="{{ h/2 }}">{{ '%+.1f' | format(h/2) }} 시간</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- 🔹 버튼 영역 -->
+    <div class="flex gap-2 mt-5">
+      <button id="saveAdminEvent" class="flex-1 bg-sky-500 text-white py-2 rounded">등록</button>
+      <button id="closeAdminModal" class="flex-1 bg-slate-300 py-2 rounded">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ✅ 일반 사용자 전용 휴가 선택 모달 (뷰포트 중앙 + 회색 반투명 배경) -->
+<div id="vacationModal"
+     class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-3">
+  <div class="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-xs text-center">
+    <h2 class="text-lg font-semibold mb-3">휴가 선택</h2>
+
+    <!-- 휴가 버튼들 -->
+    <div class="flex flex-wrap justify-center gap-2">
+      <button class="vac-btn flex items-center justify-center bg-red-100 hover:bg-red-200 text-red-700 py-1 px-2 rounded" data-type="연차">연차</button>
+      <button class="vac-btn flex items-center justify-center bg-orange-100 hover:bg-orange-200 text-orange-700 py-1 px-2 rounded" data-type="반차(전)">반차(전)</button>
+      <button class="vac-btn flex items-center justify-center bg-orange-100 hover:bg-orange-200 text-orange-700 py-1 px-2 rounded" data-type="반차(후)">반차(후)</button>
+      <button class="vac-btn flex items-center justify-center bg-yellow-100 hover:bg-yellow-200 text-yellow-700 py-1 px-2 rounded" data-type="반반차">반반차</button>
+      <button class="vac-btn flex items-center justify-center bg-emerald-100 hover:bg-emerald-200 text-emerald-700 py-1 px-2 rounded" data-type="병가">병가</button>
+      <button class="vac-btn flex items-center justify-center bg-indigo-100 hover:bg-indigo-200 text-indigo-700 py-1 px-2 rounded" data-type="예비군">예비군</button>
+      <button class="vac-btn flex items-center justify-center bg-purple-100 hover:bg-purple-200 text-purple-700 py-1 px-2 rounded" data-type="토연차">토연차</button>
+    </div>
+
+    <!-- ✅ 등록 & 취소 버튼 -->
+    <div class="mt-5 flex justify-center gap-3">
+      <button id="confirmAddBtn" class="bg-sky-600 text-white px-4 py-2 rounded hover:bg-sky-700 transition">
+        등록
+      </button>
+      <button id="closeModal" class="bg-slate-300 px-4 py-2 rounded hover:bg-slate-400 transition">
+        취소
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ✅ Toast 알림 박스 -->
+<div id="toastBox" class="fixed top-5 left-1/2 transform -translate-x-1/2 hidden z-[9999]">
+  <div id="toastMessage"
+      class="px-5 py-3 rounded-lg text-white font-medium shadow-lg bg-sky-500 transition-all duration-500">
+  </div>
+</div>
+
+<!-- ✅ 승인 대기 요청 모달 -->
+<div id="pendingModal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-3">
+  <div class="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-sm sm:max-w-md">
+    <h2 class="text-xl font-bold text-sky-800 mb-3 text-center">승인 대기 휴가 목록</h2>
+
+    <!-- 날짜 -->
+    <p id="pendingDate" class="text-lg font-bold text-sky-700 text-center mb-4"></p>
+
+    <!-- 목록 -->
+    <div id="pendingList" class="space-y-3 max-h-80 overflow-y-auto w-full"></div>
+
+    <!-- 닫기 버튼 -->
+    <div class="mt-5 text-center">
+      <button id="closePendingModal" class="bg-slate-300 hover:bg-slate-400 text-slate-800 text-sm font-semibold px-5 py-2.5 rounded-lg">
+        닫기
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ✅ 일정 삭제 확인 모달 -->
+<div id="confirmDeleteModal"
+    class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4">
+  <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-xs text-center">
+    <p id="confirmDeleteText" class="text-slate-700 text-base mb-5 font-semibold">
+      이 일정을 삭제하시겠습니까?
+    </p>
+    <div class="flex justify-center gap-3">
+      <button id="confirmDeleteYes"
+              class="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-lg font-bold">
+        삭제
+      </button>
+      <button id="confirmDeleteNo"
+              class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-5 py-2 rounded-lg font-semibold">
+        취소
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ✅ 한국 공휴일 담을 배열 & 빠른 검색용 Set
+let koreanHolidays = [];          // 디버깅용 (필수는 아님)
+let koreanHolidaySet = new Set(); // 여기 안에 여러 해 공휴일을 전부 누적 저장
+let holidayNameMap = {}; // { "2025-10-03": "개천절" } 형식으로 이름 저장
+
+// ✅ 이미 불러온 연도들 + 로딩 상태
+let loadedHolidayYears = new Set();
+let holidayLoading = false;
+
+// ✅ 공휴일 불러오는 함수 (연도별로 딱 1번만 호출되게)
+async function loadKoreanHolidays(year) {
+  // 이미 이 연도는 불러왔거나 지금 로딩 중이면 스킵
+  if (loadedHolidayYears.has(year) || holidayLoading) {
+    return false;   // 이번 호출에서 새로 로딩한 건 없음
+  }
+
+  holidayLoading = true;
+  try {
+    const baseUrl = "{{ url_for('calendar_api.get_holidays', year=0) }}";
+    const url = baseUrl.replace("0", year);
+
+    const res = await axios.get(url);
+
+    const rawList  = (res.data && res.data.holidays) || [];
+    const nameMap  = (res.data && res.data.holiday_names) || {};
+
+    rawList.forEach((s) => {
+      const d = String(s).trim();
+      if (!d) return;
+
+      koreanHolidays.push(d);   // 디버깅용
+      koreanHolidaySet.add(d);  // 빠른 포함 체크용
+    });
+
+    // 이름 맵 누적
+    Object.entries(nameMap).forEach(([date, name]) => {
+      holidayNameMap[date] = name;
+    });
+
+    loadedHolidayYears.add(year);
+
+    console.log(`✅ ${year}년 공휴일 로딩 완료. 누적 개수:`, koreanHolidaySet.size);
+    return true;
+  } catch (err) {
+    console.error("❌ 공휴일 불러오기 오류:", err);
+    return false;
+  } finally {
+    holidayLoading = false;
+  }
+}
+
+// ✅ 스크롤 기준 Toast 알림 (화면 중앙 상단에 자연스럽게 노출)
+function showToast(message, type = "success") {
+  // 기존 토스트 제거
+  const existing = document.getElementById("customToast");
+  if (existing) existing.remove();
+
+  // 새 요소 생성
+  const toast = document.createElement("div");
+  toast.id = "customToast";
+  toast.textContent = message;
+
+  // ✅ 현재 스크롤 기준 위치 계산
+  const scrollY = window.scrollY || document.documentElement.scrollTop;
+  const topOffset = scrollY + 100; // 화면 상단에서 약간 아래
+
+  // 스타일 적용
+  Object.assign(toast.style, {
+    position: "absolute",
+    top: `${topOffset}px`,
+    left: "50%",
+    transform: "translateX(-50%)",
+    backgroundColor: type === "error" ? "#ef4444" : "#0ea5e9",
+    color: "white",
+    padding: "10px 16px",
+    borderRadius: "8px",
+    fontSize: "14px",
+    fontWeight: "500",
+    boxShadow: "0 2px 10px rgba(0,0,0,0.15)",
+    zIndex: "9999",
+    opacity: "0",
+    transition: "opacity 0.3s ease, transform 0.3s ease",
+  });
+
+  document.body.appendChild(toast);
+
+  // 등장 애니메이션
+  requestAnimationFrame(() => {
+    toast.style.opacity = "1";
+    toast.style.transform = "translate(-50%, 10px)";
+  });
+
+  // 2.5초 후 사라짐
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translate(-50%, -10px)";
+    setTimeout(() => toast.remove(), 400);
+  }, 2500);
+}
+
+
+   // ✅ 로그인한 사용자 정보 삽입 (Flask → JS)
+const currentDept = "{{ dept }}".trim();
+const isAdmin = ("{{ 'true' if current_user.is_admin or current_user.department.strip() == '관리자' else 'false' }}" === "true");
+const currentUserName = "{{ current_user.first_name or current_user.name or current_user.username }}";
+console.log("✅ isAdmin =", isAdmin, " / dept =", currentDept);
+
+let selectedDate = null;
+let selectedType = null;
+let selectedWorkers = []; // 여러 근무자 선택용
+
+document.addEventListener("DOMContentLoaded", async function () {
+  const isMobile = window.innerWidth < 768;
+
+  // ✅ 모달 요소
+  const adminModal = document.getElementById("adminModal");
+  const adminModalDate = document.getElementById("adminModalDate");
+  const saveAdminEvent = document.getElementById("saveAdminEvent");
+  const closeAdminModal = document.getElementById("closeAdminModal");
+
+  // ✅ 탭 관련 요소
+  const tabVacation = document.getElementById("tabVacation");
+  const tabWorker = document.getElementById("tabWorker");
+  const tabFlex = document.getElementById("tabFlex");
+  const vacationTab = document.getElementById("vacationTab");
+  const workerTab = document.getElementById("workerTab");
+  const flexTab = document.getElementById("flexTab");
+
+  // ✅ 달력 요소
+  const calendarEl = document.getElementById("calendar");
+  if (!calendarEl) {
+    console.error("❌ calendar element not found!");
+    return;
+  }
+
+  //공용 리셋 함수
+  function resetVacationButtons() {
+    document.querySelectorAll(".vac-btn").forEach(btn => {
+      btn.classList.remove(
+        "ring-4", "ring-2", "ring-sky-400", // ← 두꺼운/얇은 테두리 전부 제거
+        "bg-sky-500", "text-white", "bg-opacity-80" // 혹시 선택 시 배경/불투명도 변경했을 수도 있어 같이 제거
+      );
+      // ⚠️ 기본 배경색은 버튼마다 다릅니다(연차=red-100 등). 회색을 추가하지 마세요!
+    });
+  }
+
+  // ✅ 전역 변수 (함수 밖에서 선언해야 함)
+  let showMyOnly = false;
+
+  // ✅ FullCalendar 초기화
+  const calendar = new FullCalendar.Calendar(calendarEl, {
+    initialView: "dayGridMonth",
+    height: "auto",
+    locale: "ko",
+    editable: false,
+    selectable: false,
+    // ✅ 날짜 셀 표시 커스터마이징 (주말 + 공휴일 색상)
+    dayCellContent: function (info) {
+        const date   = info.date;
+        const day    = date.getDay();        // 0: 일, 6: 토
+        const dateNum = date.getDate();
+
+        const year  = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const dayStr = String(date.getDate()).padStart(2, "0");
+        const ymd   = `${year}-${month}-${dayStr}`;   // 예: 2025-10-03
+
+        // 기본 색: 평일
+        let color = "#1e293b";
+
+        // 일요일
+        if (day === 0) {
+            color = "#e11d48";
+        }
+        // 토요일
+        else if (day === 6) {
+            color = "#2563eb";
+        }
+
+        // 🔥 한국 공휴일이면 무조건 빨간색 (요일 상관없이)
+        if (koreanHolidaySet.has(ymd)) {
+            color = "#e11d48";
+        }
+
+        const isMobile = window.innerWidth < 768;
+
+        // 📱 모바일: 숫자만 작게 (이름은 안 보이게)
+        if (isMobile) {
+            return {
+                html: `<span style="font-size:12px; font-weight:600; color:${color}">${dateNum}일</span>`
+            };
+        }
+
+        // 💻 PC: 공휴일이면 이름 한 줄 더 표시
+        const holidayName = holidayNameMap[ymd] || "";
+
+        if (holidayName) {
+            return {
+                html: `
+                    <div style="display:flex; flex-direction:column; align-items:flex-start;">
+                        <span style="font-size:14px; font-weight:700; color:${color}">${dateNum}일</span>
+                        <span style="font-size:10px; font-weight:600; color:#e11d48; margin-top:2px;">
+                            ${holidayName}
+                        </span>
+                    </div>
+                `
+            };
+        }
+
+    // 공휴일이 아닐 때는 원래처럼 숫자만
+    return {
+        html: `<span style="font-size:14px; font-weight:700; color:${color}">${dateNum}일</span>`
+    };
+    },
+
+   // ✅ 공휴일 + 일요일 배경색(연분홍) 적용
+    dayCellDidMount: function (info) {
+        const date = info.date;
+
+        const year  = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const dayStr = String(date.getDate()).padStart(2, "0");
+        const ymd   = `${year}-${month}-${dayStr}`;
+
+        const isSunday   = date.getDay() === 0;
+        const isHoliday  = koreanHolidaySet.has(ymd);
+
+        // 🔴 일요일 또는 🔴 법정 공휴일이면 배경 연분홍
+        if (isSunday || isHoliday) {
+            info.el.style.backgroundColor = "#fee2e2";
+        }
+    },
+
+
+    headerToolbar: { left: "", center: "title", right: "" },
+    footerToolbar: {
+      left: "prev,next today",
+      center: "",
+      right: "dayGridMonth,listWeek",
+    },
+    buttonText: { today: "오늘", month: "월", week: "주", list: "목록" },
+
+
+    // ✅ 전체 일정 / 내 일정 전환 반영
+    events: function (fetchInfo, successCallback, failureCallback) {
+      const baseUrl = `/events?dept=${encodeURIComponent(currentDept)}`;
+      const url = showMyOnly ? `${baseUrl}&my=1` : baseUrl;
+
+      axios.get(url)
+        .then((res) => successCallback(res.data))
+        .catch((err) => failureCallback(err));
+    },
+
+    eventTimeFormat: {
+      hour: "2-digit",
+      minute: "2-digit",
+      omitZeroMinute: false,
+      meridiem: false,
+    },
+
+    eventDidMount: function (info) {
+        const type = info.event.extendedProps.type || "";
+        const timeEl = info.el.querySelector(".fc-list-event-time, .fc-event-time");
+
+        // ⏰ 시간 텍스트 세팅 (기존 로직 유지)
+        if (timeEl) {
+            if (type === "반차(전)") timeEl.textContent = "08:30–13:00";
+            else if (type === "반차(후)") timeEl.textContent = "13:00–18:00";
+            else if (type === "반반차") timeEl.textContent = "2 hour";
+            else if (["연차", "병가", "예비군"].includes(type)) timeEl.textContent = "all-day";
+            else if (type === "탄력근무") {
+                const match = info.event.title.match(/\((.*?)\)/);
+                timeEl.textContent = match ? match[1] : "flex";
+            }
+        }
+
+        // ✅ 제목: 모바일에서는 이름만, PC/태블릿에서는 전체 제목
+        const titleEl = info.el.querySelector(".fc-event-title, .fc-list-event-title");
+        const originalTitle = info.event.title || "";
+        const isMobileView = window.innerWidth < 768;
+
+        if (titleEl) {
+            if (isMobileView) {
+                const nameOnly = originalTitle.split("(")[0].trim(); // "오륜 (연차)" → "오륜"
+                titleEl.textContent = nameOnly;
+            } else {
+                titleEl.textContent = originalTitle;
+            }
+        }
+
+        // ✅ 여기부터는 "모바일일 때 뱃지 간격/높이 강제 조정" (인라인 스타일)
+        if (isMobileView) {
+            const el = info.el;                 // <a class="fc-daygrid-event ...">
+            const harness = el.parentElement;   // <div class="fc-daygrid-event-harness">
+            const container = harness && harness.parentElement; // <div class="fc-daygrid-day-events">
+
+            // 뱃지 자체를 얇고 컴팩트하게
+            if (el) {
+                el.style.paddingTop = "0px";
+                el.style.paddingBottom = "0px";
+                el.style.paddingLeft = "2px";
+                el.style.paddingRight = "2px";
+                el.style.marginTop = "0px";
+                el.style.marginBottom = "0px";
+                el.style.height = "auto";
+                el.style.minHeight = "0";
+                el.style.lineHeight = "1";
+            }
+
+            // 뱃지 안쪽 텍스트 영역까지 패딩 제거
+            const main = el.querySelector(".fc-event-main");
+            if (main) {
+                main.style.paddingTop = "0px";
+                main.style.paddingBottom = "0px";
+                main.style.lineHeight = "1";
+                main.style.fontSize = "0.80rem";   // ← 여기 추가 (0.75rem, 0.7rem 등 취향대로)
+            }
+
+            // 각 이벤트 래퍼 사이 margin 제거
+            if (harness) {
+                harness.style.marginTop = "0px";
+                harness.style.marginBottom = "0px";
+            }
+
+            // 같은 날짜 여러 개일 때 "세로로 딱 붙게" 정렬
+            if (container && container.classList.contains("fc-daygrid-day-events")) {
+                container.style.display = "flex";
+                container.style.flexDirection = "column";
+                container.style.alignItems = "center";
+                container.style.gap = "0px";      // 필요하면 1px 정도로 바꿔도 됨
+                container.style.marginTop = "0px";
+                container.style.paddingTop = "0px";
+            }
+        }
+    },
+
+
+    dateClick: function (info) {
+      const isSuperadmin = ("{{ 'true' if current_user.is_superadmin else 'false' }}" === "true");
+      const isAdmin = ("{{ 'true' if current_user.is_admin else 'false' }}" === "true");
+
+      const day = info.date.getDay(); // 0: 일, 6: 토
+      selectedDate = info.dateStr;
+
+      const currentDept = "{{ dept }}".trim();
+
+      // ⭐ 휴가 버튼 보이기/숨기기 — 일반 직원에게만 적용
+      const vacBtns = document.querySelectorAll(".vac-btn");
+
+      // 관리자 / 슈퍼관리자는 버튼 숨김 로직을 아예 적용하지 않음!!
+      if (!(isAdmin || isSuperadmin)) {
+          vacBtns.forEach(btn => {
+              const isToyeoncha = btn.dataset.type === "토연차";
+
+              // ① 다른 부서 일반 직원 → 토연차 숨김
+              if (currentDept !== "원무과") {
+                  btn.style.display = isToyeoncha ? "none" : "inline-flex";
+                  return;
+              }
+
+              // ② 원무과 일반 직원
+              if (day === 6) {
+                  // 토요일 → 토연차만 표시
+                  btn.style.display = isToyeoncha ? "inline-flex" : "none";
+              } else {
+                  // 평일 → 토연차 숨김
+                  btn.style.display = isToyeoncha ? "none" : "inline-flex";
+              }
+          });
+      }
+      // ⭐ 여기까지 — 관리자에게는 vac-btn 숨김 로직을 절대 적용하지 않음
+
+      // ⭐⭐ (B) 관리자/슈퍼관리자 추가 필터 (원무과 토요일)
+      if ((isAdmin || isSuperadmin) && currentDept === "원무과" && day === 6) {
+          vacBtns.forEach(btn => {
+              const isToyeoncha = btn.dataset.type === "토연차";
+              btn.style.display = isToyeoncha ? "inline-flex" : "none";
+          });
+      }
+
+      selectedType = null;
+      selectedWorkers = [];
+
+      const today = new Date();
+      const todayZero = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const clickedDate = new Date(info.dateStr);
+
+      // 🔹 일반 직원: 이미 내 휴가가 있는 날짜면 모달 열지 않음
+      if (!(isAdmin || isSuperadmin)) {
+          const clickedDateObj = new Date(info.dateStr + "T00:00:00");
+          const vacationTypes = ["연차","반차(전)","반차(후)","반반차","병가","예비군","토연차"];
+
+          const hasMyVacation = calendar.getEvents().some(ev => {
+              const type = ev.extendedProps.type || "";
+              if (!vacationTypes.includes(type)) return false;
+
+              const title = ev.title || "";
+              const nameFromTitle = (title.split("(")[0] || "").trim();
+              if (nameFromTitle !== currentUserName) return false;
+
+              // all-day 이벤트: end 가 다음날 00시라서 1ms 빼서 날짜 비교
+              const start = new Date(ev.start.getFullYear(), ev.start.getMonth(), ev.start.getDate());
+              let endBase = ev.end ? new Date(ev.end.getTime() - 1) : ev.start;
+              const end = new Date(endBase.getFullYear(), endBase.getMonth(), endBase.getDate());
+
+              return start <= clickedDateObj && clickedDateObj <= end;
+          });
+
+          if (hasMyVacation) {
+              showToast("이미 이 날짜에 등록된 휴가가 있습니다.", "error");
+              return; // ⛔ 모달 열지 않고 종료
+          }
+      }
+
+      // 🟦 관리자 클릭 처리
+      if (isAdmin || isSuperadmin) {
+
+          // ⭐ 원무과 관리자 + 토요일 → 관리자 모달 (위에서 토연차만 보이도록 필터링됨)
+          if (currentDept === "원무과" && day === 6) {
+              document.querySelector(".bottom-nav")?.classList.add("hidden");
+              openAdminModal(selectedDate);
+              return;
+          }
+
+          // ⭐ 그 외 → 기존 관리자 모달
+          document.querySelector(".bottom-nav")?.classList.add("hidden");
+          openAdminModal(selectedDate);
+          return;
+      }
+
+      // 🔹 일반 사용자 토요일 로직
+      if (day === 6) {
+          if (currentDept === "원무과") {
+            // 원무과 일반직원만 토요일 토연차 신청 가능
+            openVacationModal();
+            return;
+          }
+          showToast("토요일 휴가/근무 지정은 관리자만 가능합니다.", "error");
+          return;
+      }
+
+      // 🔹 과거 날짜 금지
+      if (clickedDate < todayZero) {
+        showToast("과거 날짜에는 휴가를 신청할 수 없습니다.", "error");
+        return;
+      }
+
+      // 🔹 일반 사용자 모달 표시
+      openVacationModal();
+    },
+
+
+
+    // ===============================================
+    // ✅ FullCalendar eventClick (승인/삭제 모두 포함)
+    // ===============================================
+    eventClick: async function (info) {
+
+        // -----------------------------
+        // 🔥 필수 변수
+        // -----------------------------
+        const eventId = info.event.id;
+        const eventStart = info.event.startStr;
+        const eventTitle = info.event.title || "";
+        const eventType = info.event.extendedProps.type || "";
+        const approved = String(info.event.extendedProps.approved).toLowerCase() === "true";
+
+        // 관리자 여부
+        const isAdmin =
+            ("{{ 'true' if current_user.is_admin or current_user.is_superadmin else 'false' }}" === "true");
+
+        // 현재 로그인한 사람 이름
+        const currentUserName = "{{ current_user.first_name or current_user.name or current_user.username }}";
+
+        // 제목에서 이름만 추출: "홍길동 (연차)" → "홍길동"
+        const nameFromTitle = (eventTitle.split("(")[0] || "").trim();
+
+        // 이 일정이 '내 것'인지 여부
+        const isMine = (nameFromTitle === currentUserName);
+
+        // -----------------------------
+        // 🔥 승인 대상 휴가 종류만 승인 모달 가능
+        // -----------------------------
+        const isVacationType = [
+            "연차",
+            "반차(전)",
+            "반차(후)",
+            "반반차",
+            "병가",
+            "예비군",
+            "토연차"
+        ].includes(eventType);
+
+        // ============================================
+        // 🔵 승인 대기 일정 → 관리자만 승인 모달 띄우기
+        // ============================================
+        if (isVacationType && !approved && isAdmin) {
+            // (여기 아래는 기존 승인 모달 코드 그대로 유지)
+            const pendingUrl =
+                "{{ url_for('calendar.pending_requests', date='__DATE__') }}"
+                    .replace("__DATE__", eventStart);
+
+            console.log("🔵 승인 요청 조회:", pendingUrl);
+
+            const res = await axios.get(pendingUrl);
+            const data = res.data.requests || [];
+
+            const listBox = document.getElementById("pendingList");
+            const modal = document.getElementById("pendingModal");
+            const dateLabel = document.getElementById("pendingDate");
+
+            listBox.innerHTML = "";
+            dateLabel.textContent = eventStart;
+
+            if (data.length === 0) {
+                listBox.innerHTML =
+                    `<p class='text-slate-500 text-sm text-center'>승인 대기 신청이 없습니다.</p>`;
+            } else {
+                data.forEach(req => {
+                    const item = document.createElement("div");
+                    item.className = "p-2 w-full";
+
+                    // 🔹 신청일에서 년도 제거
+                    const created = req.created_at || "";
+                    let displayCreated = created;
+                    if (created.length >= 10) {
+                        displayCreated = created.slice(5);
+                    }
+
+                    item.innerHTML = `
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between
+                                    border border-slate-300 rounded-xl px-4 py-2.5 shadow-sm bg-white w-full">
+
+                            <div class="flex flex-wrap justify-center sm:justify-start items-center
+                                        gap-1 sm:gap-2
+                                        text-base sm:text-lg text-slate-700
+                                        text-center sm:text-left">
+                                <span class="font-bold sm:text-xl">${req.name}</span>
+                                <span class="text-slate-600">/ ${req.type}</span>
+                                <span class="text-slate-400 text-sm">(${displayCreated})</span>
+                            </div>
+
+                            <div class="flex justify-center sm:justify-end gap-2 mt-2 sm:mt-0">
+                                <button
+                                    class="approve-btn bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm"
+                                    data-id="${req.id}"
+                                >승인</button>
+
+                                <button
+                                    class="reject-btn bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm"
+                                    data-id="${req.id}"
+                                >삭제</button>
+                            </div>
+                        </div>
+                    `;
+                    listBox.appendChild(item);
+                });
+            }
+            modal.classList.remove("hidden");
+
+            document.getElementById("closePendingModal").onclick = () =>
+                modal.classList.add("hidden");
+
+            listBox.onclick = async (e) => {
+                const id = e.target.dataset.id;
+                if (!id) return;
+
+                if (e.target.classList.contains("approve-btn")) {
+                    const approveBase = "{{ url_for('calendar.approve_request', event_id=0) }}";
+                    const approveUrl = approveBase.replace("/0", `/${id}`);
+                    await axios.post(approveUrl);
+                    showToast("✅ 승인되었습니다.");
+                }
+                else if (e.target.classList.contains("reject-btn")) {
+                    const rejectBase = "{{ url_for('calendar.reject_request', event_id=0) }}";
+                    const rejectUrl = rejectBase.replace("/0", `/${id}`);
+                    await axios.post(rejectUrl);
+                    showToast("🗑️ 삭제되었습니다.");
+                }
+
+                modal.classList.add("hidden");
+                calendar.refetchEvents();
+            };
+
+            return; // 여기서 종료 (삭제 모달로 내려가지 않음)
+        }
+
+        // ============================================
+        // 🔒 일반 사용자 삭제 권한 체크
+        // ============================================
+        if (!isAdmin) {
+            // 1) 다른 직원 일정 → 바로 '권한 없음'
+            if (!isMine) {
+                showToast("삭제 권한이 없습니다.", "error");
+                return;
+            }
+        }
+
+        // ============================================
+        // 🔴 여기까지 통과한 경우만 삭제 확인 모달 띄우기
+        // ============================================
+        const confirmModal = document.getElementById("confirmDeleteModal");
+        const confirmText = document.getElementById("confirmDeleteText");
+        const yesBtn = document.getElementById("confirmDeleteYes");
+        const noBtn = document.getElementById("confirmDeleteNo");
+
+        let mobileMsg = `"${eventTitle}" 일정을<br>삭제할까요?`;
+        let desktopMsg = `"${eventTitle}" 일정을 삭제할까요?`;
+
+        if (!approved && !isAdmin) {
+            mobileMsg = `"${eventTitle}" 신청을<br>취소할까요?`;
+            desktopMsg = `"${eventTitle}" 신청을 취소할까요?`;
+        }
+
+        confirmText.innerHTML = `
+            <span class="inline sm:hidden">
+                ${mobileMsg}
+            </span>
+            <span class="hidden sm:inline">
+                ${desktopMsg}
+            </span>
+        `;
+        confirmModal.classList.remove("hidden");
+
+        yesBtn.onclick = async () => {
+            confirmModal.classList.add("hidden");
+
+            try {
+                const deleteUrl =
+                    "{{ url_for('vacation.delete_event', event_id=0) }}".replace("0", eventId);
+
+                const res = await axios.delete(deleteUrl);
+                const data = res.data || {};
+
+                if (res.status === 200 && data.status === "success") {
+                    const msg = data.message
+                        || (!approved && !isAdmin ? "신청이 취소되었습니다." : "🗑️ 삭제되었습니다.");
+                    showToast(msg);
+                    await calendar.refetchEvents();
+                } else {
+                    const msg = data.message || "삭제에 실패했습니다.";
+                    showToast(msg, "error");
+                    await calendar.refetchEvents();
+                }
+
+            } catch (err) {
+                console.error("❌ 서버 오류:", err);
+
+                // 🔥 403이면 '권한 없음' 메시지로 보여주기
+                if (err.response && err.response.status === 403) {
+                    const msg = (err.response.data && err.response.data.message)
+                        || "삭제 권한이 없습니다.";
+                    showToast(msg, "error");
+                } else {
+                    showToast("서버 오류 발생", "error");
+                }
+            }
+        };
+
+        noBtn.onclick = () => {
+            confirmModal.classList.add("hidden");
+        };
+    }
+
+  });
+
+  // ✅ 처음에 여러 해 공휴일을 한꺼번에 미리 로딩 (현재 년도 기준 -1 ~ +3년)
+  const baseYear = calendar.getDate().getFullYear();
+  for (let y = baseYear - 1; y <= baseYear + 2; y++) {
+    await loadKoreanHolidays(y);
+  }
+
+  // ✅ 공휴일 데이터가 준비된 상태에서 한 번만 렌더
+  calendar.render();
+
+  // ⭐ 근무표 출력 버튼 - 단일 이벤트만 등록
+  document.getElementById("exportExcelBtn")?.addEventListener("click", () => {
+      const dept = "{{ dept }}".trim();
+      if (!dept) {
+          showToast("부서를 선택해주세요.", "error");
+          return;
+      }
+
+      const currentDate = calendar.getDate();
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth() + 1;
+
+      // 📌 블루프린트 라우트 경로로 수정
+      window.location.href = `/schedule/export/${encodeURIComponent(dept)}?year=${year}&month=${month}`;
+  });
+
+
+
+  // ✅ 전체 일정 ↔ 내 일정 토글
+  const toggleBtn = document.getElementById("toggleViewBtn");
+  const toggleText = document.getElementById("toggleText");
+  const toggleIcon = document.getElementById("toggleIcon");
+
+  if (toggleBtn && toggleIcon) {
+    let showMyOnly = false;
+
+    toggleBtn.addEventListener("click", () => {
+      showMyOnly = !showMyOnly;
+
+      // ✅ 텍스트 변경 (PC 전용)
+      if (toggleText) {
+        toggleText.textContent = showMyOnly ? "내 일정" : "전체 일정";
+      }
+
+      // ✅ 색상 전환 (아이콘보다 먼저 처리)
+      if (showMyOnly) {
+        toggleBtn.classList.remove("bg-sky-600", "hover:bg-sky-700");
+        toggleBtn.classList.add("bg-slate-400", "hover:bg-slate-500");
+      } else {
+        toggleBtn.classList.remove("bg-slate-400", "hover:bg-slate-500");
+        toggleBtn.classList.add("bg-sky-600", "hover:bg-sky-700");
+      }
+
+      // ✅ 아이콘 변경 (lucide 리렌더 포함)
+      const newIcon = showMyOnly ? "user" : "calendar-days";
+      // 🔹 기존 SVG 완전히 제거하고 새 아이콘 재생성 (lucide 업데이트 문제 해결)
+      // 🔹 기존 아이콘 완전 초기화 (SVG 잔존 문제 방지)
+      toggleIcon.replaceWith(toggleIcon.cloneNode(false));
+
+      // 🔹 다시 요소를 찾아 새 data-lucide 속성 부여
+      const newIconEl = document.getElementById("toggleIcon");
+      newIconEl.setAttribute("data-lucide", newIcon);
+
+        // 🔹 렌더링 재실행
+        setTimeout(() => lucide.createIcons(), 10);
+      // ✅ 이벤트 소스 교체
+      const dept = encodeURIComponent("{{ dept }}");
+      const newUrl = showMyOnly
+        ? `/events?dept=${dept}&my=1`
+        : `/events?dept=${dept}`;
+
+      calendar.removeAllEventSources();
+      calendar.addEventSource(newUrl);
+      calendar.refetchEvents();
+    });
+  }
+
+
+  // ✅ 탭 전환 함수
+  function showTab(tabName) {
+    [vacationTab, workerTab, flexTab].forEach(t => t.classList.add("hidden"));
+    [tabVacation, tabWorker, tabFlex].forEach(b => b.classList.remove("border-sky-500", "text-sky-600"));
+    if (tabName === "vacation") {
+      vacationTab.classList.remove("hidden");
+      tabVacation.classList.add("border-sky-500", "text-sky-600");
+    } else if (tabName === "worker") {
+      workerTab.classList.remove("hidden");
+      tabWorker.classList.add("border-sky-500", "text-sky-600");
+    } else {
+      flexTab.classList.remove("hidden");
+      tabFlex.classList.add("border-sky-500", "text-sky-600");
+    }
+  }
+
+  // ✅ 탭 클릭 이벤트
+  tabVacation.addEventListener("click", () => showTab("vacation"));
+  tabWorker.addEventListener("click", () => showTab("worker"));
+  tabFlex.addEventListener("click", () => showTab("flex"));
+
+  // ✅ 휴가 버튼 클릭 (선택 표시)
+  document.querySelectorAll(".vac-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      selectedType = e.target.getAttribute("data-type");
+      document.querySelectorAll(".vac-btn").forEach((b) => b.classList.remove("ring-2", "ring-sky-400"));
+      e.target.classList.add("ring-2", "ring-sky-400");
+    });
+  });
+
+
+    // ✅ 근무자 버튼 클릭 (토글 선택 + 해제 가능)
+    document.querySelectorAll(".worker-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+            e.preventDefault();
+
+            // ⭐ 반드시 currentTarget 사용해야 정상 작동됨
+            const realBtn = e.currentTarget;
+            const name = realBtn.dataset.name;
+            if (!name) return;
+
+            if (selectedWorkers.includes(name)) {
+                // 이미 선택 → 해제
+                selectedWorkers = selectedWorkers.filter((n) => n !== name);
+                realBtn.classList.remove("ring-2", "ring-sky-400", "bg-sky-500", "text-white");
+                realBtn.classList.add("bg-blue-100", "text-blue-700");
+            } else {
+            // 새 선택
+                selectedWorkers.push(name);
+                realBtn.classList.add("ring-2", "ring-sky-400", "bg-sky-500", "text-white");
+                realBtn.classList.remove("bg-blue-100", "text-blue-700");
+            }
+
+            console.log("✅ 선택된 근무자:", selectedWorkers);
+        });
+    });
+
+
+
+    // ✅ 관리자 등록 버튼 (단일 정의!)
+    saveAdminEvent.addEventListener("click", async () => {
+        const hours = document.getElementById("flexHours").value;
+        const target_name = document.getElementById("flexUser").value;
+
+        try {
+            let res;
+
+            // 🟢 휴가 탭
+            if (!vacationTab.classList.contains("hidden") && selectedType) {
+                res = await axios.post("{{ url_for('vacation.add_event') }}", {
+                    start: selectedDate,
+                    end: selectedDate,
+                    type: selectedType,
+                    department: "{{ dept }}".trim()
+                });
+            }
+
+            // 🟠 근무자 탭
+            if (!workerTab.classList.contains("hidden") && selectedWorkers.length > 0) {
+                res = await axios.post("{{ url_for('vacation.add_event') }}", {
+                    start: selectedDate,
+                    end: selectedDate,
+                    type: "근무자",
+                    worker_names: selectedWorkers,
+                    department: "{{ dept }}".trim()
+                });
+            }
+
+            // 🟣 탄력근무 탭
+            if (!flexTab.classList.contains("hidden") && target_name) {
+                const parsedHours = parseFloat(hours);
+
+                if (isNaN(parsedHours) || parsedHours === 0) {
+                    showToast("근무 시간을 올바르게 입력해주세요. (0은 입력 불가)", "error");
+                    return;
+                }
+
+                if (parsedHours < -6 || parsedHours > 6) {
+                    showToast("근무 시간은 -5 ~ +5 사이로 입력해주세요.", "error");
+                    return;
+                }
+
+                // 🔥 add_flex_event 는 vacation_bp 안에 있으므로 url_for 를 사용해야 함
+                const flexUrl = "{{ url_for('vacation.add_flex_event') }}";
+
+                res = await axios.post(
+                    flexUrl,
+                    {
+                    date: selectedDate,
+                    target_name: target_name.trim(),
+                    hours: parsedHours,
+                    },
+                    {
+                    headers: { "Content-Type": "application/json" },
+                    }
+                );
+            }
+
+            // ✅ 서버 응답 처리
+            if (res && res.data) {
+                if (res.data.status === "success") {
+                    showToast(res.data.message || "등록되었습니다.", "success");
+
+                    // 🔹 관리자 모달 닫기
+                    adminModal.classList.add("hidden");
+
+                    // 🔹 숨겼던 하단 네비게이션 다시 표시
+                    document.querySelector(".bottom-nav")?.classList.remove("hidden");
+
+                    // 🔹 캘린더 새로고침
+                    calendar.refetchEvents();
+                } else if (res.data.status === "error") {
+                    showToast(res.data.message || "이미 등록된 일정이 있습니다.", "error");
+                } else {
+                    showToast("등록 중 알 수 없는 응답이 발생했습니다.", "info");
+                }
+            } else {
+                showToast("서버 응답이 없습니다.", "error");
+            }
+
+
+            } catch (err) {
+                console.error("❌ 오류:", err);
+                showToast("등록 중 오류가 발생했습니다.", "error");
+        }
+    });
+
+    // ✅ 공용 초기화 함수 정의
+    function resetWorkerSelection() {
+        selectedWorkers = [];
+        document.querySelectorAll(".worker-btn").forEach(btn => {
+            btn.classList.remove("ring-2", "ring-sky-400", "bg-sky-500", "text-white");
+            btn.classList.add("bg-blue-100", "text-blue-700");
+        });
+    }
+
+    // ✅ 관리자 모달 닫기
+    closeAdminModal.addEventListener("click", () => {
+        document.querySelector(".bottom-nav")?.classList.remove("hidden"); // ✅ 모달 닫힐 때 복원
+        adminModal.classList.add("hidden");
+        resetWorkerSelection(); // 🔹 닫기 시 초기화
+    });
+
+
+  // ✅ 일반 사용자용 휴가 등록 (등록 버튼 방식)
+  const vacModal = document.getElementById("vacationModal");
+  const confirmAddBtn = document.getElementById("confirmAddBtn");
+  const closeModalBtn = document.getElementById("closeModal");
+
+  // ✅ 휴가 버튼 클릭 시 선택만 표시
+  document.querySelectorAll(".vac-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".vac-btn").forEach(b => b.classList.remove("ring-4", "ring-sky-400"));
+      btn.classList.add("ring-4", "ring-sky-400");
+      selectedType = btn.dataset.type;
+    });
+  });
+
+  // ✅ 등록 버튼 클릭 시 실제 저장
+  if (confirmAddBtn) {
+    confirmAddBtn.addEventListener("click", async () => {
+
+        if (!selectedDate || !selectedType) {
+            showToast("날짜와 휴가 종류를 선택해주세요.", "error");
+            return;
+        }
+
+        const currentDept = "{{ dept }}".trim();
+        const day = new Date(selectedDate).getDay();
+
+        // ⭐ 1) 토요일에는 원무과는 토연차만 가능
+        if (day === 6 && currentDept === "원무과" && selectedType !== "토연차") {
+            showToast("토요일은 토연차만 가능합니다.", "error");
+            return;
+        }
+
+        // ⭐ 2) 원무과는 평일에 토연차 금지
+        if (currentDept === "원무과" && selectedType === "토연차" && day !== 6) {
+            showToast("토연차는 토요일에만 사용할 수 있습니다.", "error");
+            return;
+        }
+
+        try {
+            const res = await axios.post("{{ url_for('vacation.add_event') }}", {
+                start: selectedDate,
+                end: selectedDate,
+                type: selectedType,
+            });
+
+            if (res.data.status === "success") {
+                showToast(`${selectedType} 등록 완료`, "success");
+                vacModal.classList.add("hidden");
+                calendar.refetchEvents();
+            } else {
+                showToast(res.data.message || "등록 실패", "error");
+            }
+        } catch (err) {
+            console.error("❌ 등록 오류:", err);
+            showToast("등록 중 오류가 발생했습니다.", "error");
+        }
+
+        // 초기화
+        selectedType = null;
+        selectedDate = null;
+    });
+  }
+
+
+  // ✅ 취소 버튼 클릭
+  if (closeModalBtn) {
+    closeModalBtn.addEventListener("click", () => vacModal.classList.add("hidden"));
+  }
+
+  
+  const switchDesktopBtn = document.getElementById("switchDesktopBtn");
+  const mainContainer = document.querySelector("main");
+
+  // ✅ 신청 대기 버튼 클릭 → 신청 목록 페이지 이동
+  const pendingBtn = document.getElementById("pendingPageBtn");
+  if (pendingBtn) {
+    pendingBtn.addEventListener("click", () => {
+      // 🔥 Blueprint 엔드포인트 기준으로 이동
+      window.location.href = "{{ url_for('vacation.pending_vacations') }}";
+    });
+  }
+
+});
+
+// ✅ 일반 사용자 모달 열기 (뷰포트 중앙은 CSS가 처리)
+function openVacationModal() {
+  const modal = document.getElementById("vacationModal");
+  if (!modal) return;
+
+  // 모달 보여주기
+  modal.classList.remove("hidden");
+
+  // 혹시 예전 인라인 위치 스타일이 남아 있을 수 있으니까 초기화
+  modal.style.top = "";
+  modal.style.left = "";
+  modal.style.transform = "";
+  modal.style.position = "";
+
+  // 버튼 선택 효과 리셋
+  requestAnimationFrame(() => {
+    document.querySelectorAll("#vacationModal .vac-btn").forEach((btn) => {
+      btn.classList.remove(
+        "bg-sky-500",
+        "text-white",
+        "ring-2",
+        "ring-4",
+        "ring-sky-400",
+        "bg-opacity-80"
+      );
+    });
+    selectedType = null;
+  });
+}
+
+// ✅ 관리자 모달 열기: 스크롤 기준 중앙 정렬 + 탭/날짜 세팅 + 선택 초기화
+function openAdminModal(dateStr) {
+  const modal = document.getElementById("adminModal");
+  const adminModalDate = document.getElementById("adminModalDate");
+  if (!modal) return;
+
+  // 날짜 표시
+  if (adminModalDate) {
+    adminModalDate.textContent = `날짜: ${dateStr}`;
+  }
+
+  // 공용 초기화 (근무자 선택 제거)
+  if (typeof resetWorkerSelection === "function") {
+    resetWorkerSelection();
+  }
+
+  // 요일 계산
+  const d = new Date(dateStr);
+  const day = d.getDay(); // 0:일 ~ 6:토
+  const currentDept = "{{ dept }}".trim();
+
+  // 기본 탭 자동 선택
+  if (typeof showTab === "function") {
+    if (day === 0 || day === 6) {
+      showTab("worker");   // 토/일 → 근무자 탭
+    } else {
+      showTab("vacation"); // 평일 → 휴가 탭
+    }
+  }
+
+  // ==========================
+  // ⭐ 휴가 종류 버튼 필터링
+  // ==========================
+  const vacBtns = document.querySelectorAll("#vacationTab .vac-btn");
+
+  vacBtns.forEach(btn => {
+    const isToyeoncha = btn.dataset.type === "토연차";
+
+    // ① 다른 부서 관리자는 무조건 토연차 숨김
+    if (currentDept !== "원무과") {
+      btn.style.display = isToyeoncha ? "none" : "inline-flex";
+      return;
+    }
+
+    // ② 원무과 관리자
+    if (day === 6) {
+      // ⭐ 토요일 → "토연차만 표시"
+      btn.style.display = isToyeoncha ? "inline-flex" : "none";
+    } else {
+      // ⭐ 평일 → "토연차 숨김 + 나머지는 표시"
+      btn.style.display = isToyeoncha ? "none" : "inline-flex";
+    }
+  });
+
+  // ==========================
+  // 모달 보이기 (위치/배경은 CSS로 처리)
+  // ==========================
+  modal.classList.remove("hidden");
+
+  // 예전 인라인 위치 스타일 초기화
+  modal.style.top = "";
+  modal.style.left = "";
+  modal.style.transform = "";
+  modal.style.position = "";
+
+  // 1프레임 뒤 UI 리셋
+  requestAnimationFrame(() => {
+    document.querySelectorAll("#adminModal .vac-btn").forEach((btn) => {
+      btn.classList.remove(
+        "bg-sky-500",
+        "text-white",
+        "ring-2",
+        "ring-4",
+        "ring-sky-400",
+        "bg-opacity-80"
+      );
+    });
+
+    selectedType = null;
+    selectedWorkers = [];
+
+    document.querySelectorAll(".worker-btn").forEach((btn) => {
+      btn.classList.remove("ring-2", "ring-sky-400", "bg-sky-500", "text-white");
+      btn.classList.add("bg-blue-100", "text-blue-700");
+    });
+  });
+}
+
+</script>
+
+<style>
+        /* 헤더 위, 푸터 바로 위로 끌어올리기 */
+    .fc .fc-header-toolbar {
+        order: 0;
+    }
+    .fc .fc-footer-toolbar {
+        margin-top: -0.4rem !important;
+        padding-top: 0 !important;
+    }
+    .fc .fc-view-harness {
+        margin-top: 10px !important;     /* 🔹 버튼 줄 ↔ 달력 사이 여백 */
+        margin-bottom: 0 !important;
+        order: 2;
+    }
+    /* ✅ 모든 뷰포트 공통: 이벤트 박스를 최대한 얇게 */
+    .fc-event {
+        line-height: 1em !important;      /* 세로 간격 줄이기 */
+        padding: 0 4px !important;        /* 위/아래 0, 좌우만 약간 */
+        height: auto !important;
+        min-height: 0 !important;         /* 더 이상 최소 높이 강제 X */
+        white-space: nowrap !important;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 0.9rem !important;
+    }
+    /* ✅ 2. 이벤트 제목(이름) 영역 여백 최소화 */
+    .fc-daygrid-event-dot {
+        margin: 0 2px 0 0 !important;
+    }
+
+    /* ✅ dayGrid 월 보기에서 같은 날짜 안의 뱃지 간격/높이 조정 (PC+모바일 공통) */
+    .fc .fc-daygrid-day-frame {
+        text-align: center;                /* 날짜 + 뱃지 중앙 정렬 */
+    }
+
+    .fc .fc-daygrid-day-events {
+        display: flex;
+        flex-direction: column;            /* 위/아래로 쌓기 */
+        align-items: center;               /* 가로 가운데 */
+        gap: 1px;                          /* 뱃지 사이 간격 (0~2px 사이로 조절 가능) */
+        margin-top: 0;
+        padding-top: 0;
+    }
+
+    .fc .fc-daygrid-day .fc-daygrid-event-harness {
+        margin: 0 !important;              /* 기본 margin 제거 */
+    }
+
+    .fc .fc-daygrid-day .fc-daygrid-event {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: auto;
+        min-width: 0;
+        margin: 0 !important;
+        padding: 0 4px;
+        height: auto;
+        min-height: 0;
+        line-height: 1;
+        border-radius: 4px;             /* pill 모양 유지 */
+    }
+
+    .fc .fc-daygrid-day .fc-daygrid-event .fc-event-main {
+        padding: 0;
+        line-height: 1;
+    }
+
+
+    /* ✅ PC 모드일 때 전체 레이아웃 확대 */
+    .desktop-view {
+      max-width: 900px;
+      margin: 0 auto;
+      transition: all 0.3s ease;
+    }
+
+    /* ✅ PC 모드일 때 카드 크기 및 폰트 약간 확대 */
+    .desktop-view .bg-white\/90 {
+      padding: 1.5rem !important;
+      font-size: 1.05rem;
+    }
+
+    /* ✅ 모바일 기본 상태 */
+    main:not(.desktop-view) {
+      max-width: 100%;
+    }
+
+    /* ✅ 툴바 아래 캘린더 본문 간격만 살짝 주기
+    (각 버튼 그룹 높이는 모두 동일하게) */
+    .fc .fc-header-toolbar {
+        margin-top: 0 !important;         /* 🔹 타이틀 위 여백 거의 없게 */
+        padding-top: 2px !important;      /* 🔹 너무 붙지 않게 살짝만 */
+        margin-bottom: 0 !important;
+    }
+
+
+    /* ✅ FullCalendar 목록(list) 뷰 라운드 처리 */
+    .fc-theme-standard .fc-list {
+      border-radius: 12px !important;
+      overflow: hidden !important;
+      border: 1px solid #dbeafe !important; /* 캘린더 외곽선 느낌 유지 */
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    /* 캘린더의 목록형 이벤트 배경統一 */
+    .fc-list-event {
+      background-color: #ffffff !important;
+    }
+    /* ✅ dayGrid 월 보기: 같은 날짜 안의 뱃지 간격/높이 강제 조정 (PC + 모바일 공통) */
+    .fc .fc-daygrid-day-frame {
+        text-align: center !important; /* 날짜 + 뱃지 모두 가운데 */
+    }
+
+    .fc .fc-daygrid-day-events {
+        display: flex !important;
+        flex-direction: column !important;  /* 위↕아래로 쌓이게 */
+        align-items: center !important;     /* 가로 가운데 */
+        gap: 0 !important;                  /* 뱃지 사이 간격 0 */
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }
+
+    /* 각 이벤트 래퍼 사이 여백 제거 */
+    .fc .fc-daygrid-day .fc-daygrid-event-harness {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+
+    /* 뱃지 자체 높이/간격 최소화 */
+    .fc .fc-daygrid-day .fc-daygrid-event {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: auto !important;
+        min-width: 0 !important;
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        min-height: 0 !important;          /* 예전 min-height:16 덮어쓰기 */
+        height: auto !important;
+        line-height: 1 !important;
+    }
+
+    /* 뱃지 안쪽 텍스트 박스도 세로 여백 제거 */
+    .fc .fc-daygrid-day .fc-daygrid-event .fc-event-main {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        line-height: 1 !important;
+    }
+    /* ✅ 같은 날짜에서 두 번째 이후 뱃지는 살짝 위로 겹치게 (간격 강제로 줄이기) */
+    .fc .fc-daygrid-day .fc-daygrid-event-harness + .fc-daygrid-event-harness {
+        margin-top: -4px !important;   /* 필요하면 -2, -3 등으로 조절 */
+    }
+        /* ✅ 날짜 텍스트와 첫 번째 뱃지 사이 간격 줄이기 */
+    .fc .fc-daygrid-day .fc-daygrid-day-top {
+        padding-bottom: 0 !important;   /* 날짜 행 아래 패딩 제거 */
+        margin-bottom: -6 !important;    /* 날짜 행 아래 마진 제거 */
+    }
+    /* 날짜 숫자 "22일" 자체의 패딩/마진 제거 */
+    .fc .fc-daygrid-day-number {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        margin: 0 !important;
+        line-height: 1 !important;
+    }
+
+    .fc .fc-daygrid-day-frame {
+        padding-top: 0 !important;      /* 프레임 위쪽 패딩도 0으로 */
+    }
+
+    .fc .fc-daygrid-day-events {
+        margin-top: 0 !important;       /* 이벤트 영역 위쪽 여백 제거(재확인) */
+        padding-top: 0 !important;
+    }
+
+/* 📱 모바일 전용: 월 제목 + 네비 버튼 크기 줄이기 */
+@media (max-width: 768px) {
+    /* 🔹 헤더(제목 + 네비 버튼)를 세로로 쌓고, 위/아래 간격 일정하게 */
+    .fc .fc-header-toolbar {
+        display: flex;
+        flex-direction: column;          /* 제목 / 버튼 줄을 세로로 */
+        align-items: center;
+        gap: 10px;                        /* 제목 ↔ 버튼 줄 간격 */
+        margin-top: 4px !important;
+        margin-bottom: 6px !important;   /* 버튼 ↔ 달력 본문 간격 (위 gap과 맞춤) */
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    /* 각 chunk(←→ 오늘 / 제목 / 월·목록) 자체 여백 제거 */
+    .fc .fc-header-toolbar .fc-toolbar-chunk {
+        margin: 0 !important;
+    }
+
+    /* "2025년 11월" 제목 글씨 */
+    .fc .fc-toolbar-title {
+        font-size: 1.3rem !important;    /* 필요하면 1.1 / 1.3 으로 조절 */
+        line-height: 1.2 !important;
+    }
+
+    /* ◀ ▶ 오늘 / 월 / 목록 버튼 크기 */
+    .fc .fc-button {
+        padding: 3px 8px !important;     /* 세로 얇게, 가로도 조금 줄이기 */
+        font-size: 1rem !important;    /* 살짝 작게 */
+        line-height: 1.2 !important;
+    }
+
+    .fc .fc-button .fc-icon {
+        font-size: 0.9em !important;
+    }
+}
+
+</style>
+
+{% endblock content%}

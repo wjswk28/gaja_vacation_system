@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}승인 대기 휴가 - 가자연세병원 연차관리 시스템{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-sky-100 py-5 px-4 md:px-6 mt-[0px] sm:mt-[8px] md:mt-[8px]">
+
+  <!-- ✅ 타이틀 -->
+  <div class="flex items-center justify-center md:justify-start gap-2 mb-4">
+    <i data-lucide="clipboard-list" class="w-6 h-6 text-sky-700"></i>
+    <span class="text-sky-800 font-bold text-xl md:text-2xl">승인 대기 중인 휴가 신청</span>
+  </div>
+
+  {% if vacations %}
+  <div class="overflow-x-auto rounded-xl border border-sky-100 shadow-inner">
+    <table class="min-w-full text-sm border-collapse">
+      <thead class="bg-gradient-to-r from-sky-50 to-sky-100 text-sky-700 border-b border-sky-200">
+        <tr>
+          <th class="py-2 px-2 border-r border-sky-200">날짜</th>
+          <th class="py-2 px-2 border-r border-sky-200">이름</th>
+          <th class="py-2 px-2 border-r border-sky-200">종류</th>
+          <th class="py-2 px-2 border-r border-sky-200">신청일 (시간)</th>
+          <th class="py-2 px-2 border-r border-sky-200">승인</th>
+          <th class="py-2 px-2">삭제</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 text-center">
+        {% for v in vacations %}
+        <tr class="hover:bg-sky-50 transition">
+          <td class="py-2 border-r border-slate-100">
+            {{ v.start_date }}
+            {% if v.end_date != v.start_date %}
+              ~ {{ v.end_date }}
+            {% endif %}
+          </td>
+          <td class="py-2 border-r border-slate-100 font-medium">
+            {% if v.target_user %}
+                {{ v.target_user.last_name }}{{ v.target_user.first_name }}
+            {% else %}
+                {# v.name = first_name 일 때 → User 테이블에서 full name 찾아오기 #}
+                {% for u in users %}
+                    {% if u.first_name == v.name %}
+                        {{ u.last_name }}{{ u.first_name }}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+          </td>
+          <td class="py-2 border-r border-slate-100">{{ v.type }}</td>
+          <td class="py-2 border-r border-slate-100 text-slate-500">
+            {{ v.created_at.strftime('%Y-%m-%d %H:%M') }}
+          </td>
+          <td class="py-2 border-r border-slate-100">
+            <button
+              class="approve-btn bg-sky-500 hover:bg-sky-600 text-white px-3 py-1 rounded-lg shadow-sm transition"
+              data-id="{{ v.id }}">
+              승인
+            </button>
+          </td>
+          <td class="py-2">
+            <button
+              class="reject-btn bg-rose-500 hover:bg-rose-600 text-white px-3 py-1 rounded-lg shadow-sm transition"
+              data-id="{{ v.id }}">
+              삭제
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-center text-slate-500 text-sm mt-6">승인 대기 중인 휴가가 없습니다.</p>
+  {% endif %}
+</div>
+
+<!-- ✅ 반응형 -->
+<style>
+@media (max-width: 768px) {
+  table { font-size: 0.85rem; }
+  th, td { white-space: nowrap; }
+}
+</style>
+
+<!-- ✅ 토스트 알림 -->
+<style>
+.toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: white;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  opacity: 0;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  z-index: 9999;
+}
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* ✅ 색상 구분 */
+.toast.success { background: rgba(14,165,233,0.95); }  /* 파랑 - 승인 */
+.toast.error { background: rgba(239,68,68,0.95); }     /* 빨강 - 실패 */
+.toast.info { background: rgba(107,114,128,0.95); }    /* 회색 - 일반 */
+</style>
+
+<!-- ✅ 승인 / 삭제 + 토스트 기능 -->
+<script>
+function showToast(message, type = "info") {
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.classList.add("show"), 10);
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 400);
+  }, 2000);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+
+  // 승인
+  document.querySelectorAll(".approve-btn").forEach(btn => {
+    btn.addEventListener("click", async e => {
+      const id = e.target.dataset.id;
+      try {
+        const res = await axios.post(`/vacation/approve_vacation/${id}`);
+        if (res.data.status === "success") {
+          showToast("✅ " + res.data.message, "success");
+          setTimeout(() => location.reload(), 1200);
+        } else {
+          showToast(res.data.message || "승인 실패", "error");
+        }
+      } catch (err) {
+        showToast("서버 통신 오류가 발생했습니다.", "error");
+      }
+    });
+  });
+
+  // 삭제
+  document.querySelectorAll(".reject-btn").forEach(btn => {
+    btn.addEventListener("click", async e => {
+      const id = e.target.dataset.id;
+      try {
+        const res = await axios.delete(`/vacation/delete/${id}`);
+        if (res.data.status === "success") {
+          showToast("🗑️ 삭제되었습니다.", "info");
+          setTimeout(() => location.reload(), 1000);
+        } else {
+          showToast(res.data.message || "삭제 실패", "error");
+        }
+      } catch (err) {
+        showToast("서버 통신 오류가 발생했습니다.", "error");
+      }
+    });
+  });
+});
+</script>
+
+{% endblock %}

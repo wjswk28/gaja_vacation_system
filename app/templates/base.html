@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}가자연세병원 연차관리 시스템{% endblock %}</title>
+
+    <!-- TailwindCSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- FullCalendar + Axios -->
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.7/index.global.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.7/index.global.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+    <style>
+      body {
+        font-family: 'Pretendard', 'Noto Sans KR', sans-serif;
+        background: linear-gradient(to bottom right, #f0f9ff, #ffffff);
+        color: #334155;
+      }
+
+      .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+      .card {
+        background: #fff;
+        border-radius: 1rem;
+        box-shadow: 0 4px 8px rgba(14,165,233,0.1);
+        border: 1px solid rgba(14,165,233,0.1);
+      }
+
+      .btn { transition: all 0.2s ease-in-out; }
+      .btn:hover { transform: translateY(-1px); }
+
+      .btn-delete:hover { animation: shake 0.3s ease-in-out; }
+      @keyframes shake {
+        0% { transform: translateX(0); }
+        25% { transform: translateX(-2px); }
+        50% { transform: translateX(2px); }
+        75% { transform: translateX(-2px); }
+        100% { transform: translateX(0); }
+      }
+
+      input, select, textarea {
+        outline: none;
+        border-radius: 8px;
+        transition: box-shadow 0.2s;
+      }
+      input:focus, select:focus, textarea:focus {
+        box-shadow: 0 0 0 3px rgba(14,165,233,0.25);
+      }
+
+      #calendar-wrapper { overflow: hidden; }
+      .fc-theme-standard .fc-scrollgrid { border-radius: 1rem; overflow: hidden; }
+      .fc-toolbar.fc-header-toolbar { border-radius: 0.75rem 0.75rem 0 0; }
+
+      @media (max-width: 640px) {
+        #calendar-wrapper { padding: 0.5rem; margin-top: 0.25rem; }
+      }
+    </style>
+
+    {% block head %}{% endblock %}
+</head>
+
+<body class="min-h-screen flex flex-col">
+
+<!-- ================================ -->
+<!-- 🔷 PC/모바일 공통 헤더 -->
+<!-- ================================ -->
+<header class="sticky top-0 z-50 bg-sky-600 text-white shadow-md border-b border-sky-700/30">
+    <div class="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between px-4 py-3 gap-2 md:gap-0 text-center md:text-left">
+        
+      <!-- 병원명 / 시스템명 -->
+      <h1 class="text-lg font-semibold leading-tight flex justify-center md:justify-start items-center gap-1">
+        🏥 <span>가자연세병원 연차관리 시스템</span>
+      </h1>
+
+      {% if current_user.is_authenticated %}
+        <!-- ✅ PC 네비게이션 -->
+        <nav class="hidden md:flex flex-wrap justify-center md:justify-end items-center gap-4 text-sm flex-nowrap">
+            <a href="{{ url_for('calendar.calendar_page') }}" class="flex items-center gap-1 hover:text-sky-200 transition-colors">
+            <i data-lucide="calendar-days" class="w-4 h-4"></i>
+            <span>캘린더</span>
+            </a>
+            {% if current_user.is_superadmin or current_user.is_admin %}
+            <a href="{{ url_for('employee.employee_register') }}" class="flex items-center gap-1 hover:text-sky-200 transition-colors">
+                <i data-lucide="user-plus" class="w-4 h-4"></i>
+                <span>직원등록</span>
+            </a>
+            <a href="{{ url_for('employee.employee_list') }}" class="flex items-center gap-1 hover:text-sky-200 transition-colors">
+                <i data-lucide="users" class="w-4 h-4"></i>
+                <span>직원관리</span>
+            </a>
+            {% if current_user.is_superadmin %}
+                <a href="{{ url_for('altleave.grant_alt_leave') }}" class="flex items-center gap-1 hover:text-sky-200 transition-colors">
+                    <i data-lucide="refresh-ccw" class="w-4 h-4"></i>
+                    <span>대체연차</span>
+                </a>
+                <a href="{{ url_for('birthday.birthday_report') }}" class="flex items-center gap-1 hover:text-sky-200 transition-colors">
+                    <i data-lucide="gift" class="w-4 h-4"></i>
+                    <span>생일자</span>
+                </a>
+            {% endif %}
+            {% endif %}
+            {% if current_user.is_admin and not current_user.is_superadmin %}
+                <a href="{{ url_for('newhire.checklist') }}" class="flex items-center gap-1 hover:text-sky-200 transition">
+                  <i data-lucide="check-square" class="w-4 h-4"></i>
+                  <span>신규입사</span>
+                </a>
+            {% endif %}
+            <a href="{{ url_for('myinfo.myinfo') }}" class="flex items-center gap-1 text-white/80 hover:text-white transition-colors">
+            <i data-lucide="user" class="w-4 h-4"></i>
+            <span>내 정보</span>
+            </a>
+            <a href="{{ url_for('auth.logout') }}" class="flex items-center gap-1 text-rose-200 hover:text-white transition-colors">
+            <i data-lucide="log-out" class="w-4 h-4"></i>
+            <span>로그아웃</span>
+            </a>
+        </nav>
+        {% endif %}
+
+        <!-- ✅ 모바일 바텀 메뉴바 -->
+        {% if current_user.is_authenticated %}
+        <nav class="bottom-nav fixed bottom-0 left-0 w-full bg-white border-t border-sky-100 shadow-md md:hidden 
+                    flex justify-around items-center py-2 text-xs text-slate-600 z-50">
+
+            <!-- 캘린더 -->
+            <a href="{{ url_for('calendar.calendar_page') }}" 
+                class="flex flex-col items-center hover:text-sky-600 transition">
+                <i data-lucide="calendar-days" class="w-5 h-5"></i>
+                <span>캘린더</span>
+            </a>
+
+            <!-- 직원등록 (관리자/총관리자) -->
+            {% if current_user.is_admin or current_user.is_superadmin %}
+            <a href="{{ url_for('employee.employee_register') }}" 
+                class="flex flex-col items-center hover:text-sky-600 transition">
+                <i data-lucide="user-plus" class="w-5 h-5"></i>
+                <span>등록</span>
+            </a>
+
+            <a href="{{ url_for('employee.employee_list') }}" 
+                class="flex flex-col items-center hover:text-sky-600 transition">
+                <i data-lucide="users" class="w-5 h-5"></i>
+                <span>관리</span>
+            </a>
+            {% endif %}
+
+            <!-- 🎉 신규입사 체크리스트 (관리자 ONLY / 총관리자 제외) -->
+            {% if current_user.is_admin and not current_user.is_superadmin %}
+            <a href="{{ url_for('newhire.checklist') }}" 
+                class="flex flex-col items-center hover:text-sky-600 transition">
+                <i data-lucide="check-square" class="w-5 h-5"></i>
+                <span>신규</span>
+            </a>
+            {% endif %}
+
+            <!-- 총관리자 전용 메뉴 -->
+            {% if current_user.is_superadmin %}
+            <a href="{{ url_for('altleave.grant_alt_leave') }}" 
+                class="flex flex-col items-center hover:text-sky-600 transition">
+                <i data-lucide="refresh-ccw" class="w-5 h-5"></i>
+                <span>대체</span>
+            </a>
+
+            <a href="{{ url_for('birthday.birthday_report') }}" 
+                class="flex flex-col items-center hover:text-sky-600 transition">
+                <i data-lucide="gift" class="w-5 h-5"></i>
+                <span>생일</span>
+            </a>
+            {% endif %}
+
+            <!-- 내 정보 -->
+            <a href="{{ url_for('myinfo.myinfo') }}" 
+                class="flex flex-col items-center hover:text-sky-600 transition">
+                <i data-lucide="user" class="w-5 h-5"></i>
+                <span>내정보</span>
+            </a>
+
+            <!-- 로그아웃 -->
+            <a href="{{ url_for('auth.logout') }}" 
+                class="flex flex-col items-center text-rose-500 hover:text-rose-600 transition">
+                <i data-lucide="log-out" class="w-5 h-5"></i>
+                <span>로그아웃</span>
+            </a>
+
+        </nav>
+        {% endif %}
+
+    </div>
+</header>
+
+<!-- ================================ -->
+<!-- 🔷 메인 콘텐츠 (각 페이지 내용) -->
+<!-- ================================ -->
+<main class="flex-1 py-4 px-2 md:px-0">
+    {% block content %}{% endblock %}
+</main>
+
+
+<script>
+  lucide.createIcons();
+</script>
+
+{% block scripts %}{% endblock %}
+
+</body>
+</html>
