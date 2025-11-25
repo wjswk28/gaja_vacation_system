@@ -118,4 +118,32 @@ def create_app():
         db.create_all()
         init_master()   # ⬅️ 여기서 master 생성/업데이트
 
-    return app
+    import shutil
+
+    def ensure_persistent_dirs(app):
+        base = app.config["STORAGE_ROOT"]
+
+        # 필요한 폴더들
+        folders = ["forms", "excel_output", "holiday_cache", "uploads"]
+        for f in folders:
+            os.makedirs(os.path.join(base, f), exist_ok=True)
+
+        # forms 안에 기본 템플릿이 없으면 복사
+        src_forms = os.path.join(os.path.dirname(__file__), "..", "forms")
+        dst_forms = os.path.join(base, "forms")
+
+        if os.path.exists(src_forms):
+            for filename in os.listdir(src_forms):
+                src_file = os.path.join(src_forms, filename)
+                dst_file = os.path.join(dst_forms, filename)
+                if not os.path.exists(dst_file):
+                    shutil.copy(src_file, dst_file)
+                    print(f"복사됨: {src_file} → {dst_file}")
+
+    def create_app():
+        app = Flask(__name__)
+        ...
+        ensure_persistent_dirs(app)
+        
+        return app
+
