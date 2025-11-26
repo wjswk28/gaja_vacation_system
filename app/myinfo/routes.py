@@ -6,7 +6,7 @@ from flask import (
     flash
 )
 from flask_login import login_required, current_user
-    from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from app.myinfo import myinfo_bp
 from app.models import User, Vacation, AltLeaveLog
 from app.leave_utils import calculate_annual_leave
