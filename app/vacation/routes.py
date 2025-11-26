@@ -4,6 +4,7 @@ from datetime import datetime, date, timedelta
 from app.vacation import vacation_bp
 from app.models import User, Vacation
 from app import db
+from app.models import now_kst
 
 
 # =======================================================
@@ -331,7 +332,7 @@ def add_flex_event():
         hours=hours,
         is_flex=True,
         approved=True,                        # 탄력근무 자동 승인
-        created_at=datetime.now()
+        created_at=now_kst()
     )
 
     db.session.add(flex_event)
