@@ -1,8 +1,6 @@
 from datetime import datetime, date, timedelta
 from flask_login import UserMixin
 from app import db, login_manager
-from app.models import now_kst
-
 
 # =====================
 # DB 모델
