@@ -32,12 +32,21 @@ def calculate_annual_leave(join_date_str: str, basis: date = None) -> int:
 
     # ---------------------------------------------------------
     # 1) 첫해 월차 (월 1개, 최대 11개월)
+    #     ※ 2017-06-01 이후 입사자에게만 적용
     # ---------------------------------------------------------
-    if basis >= first_anniv:
-        months_first = 11
+    cutoff_date = date(2017, 6, 1)
+    
+    # 2017-06-01 이전 입사자는 월차 발생 없음
+    if jd < cutoff_date:
+        months_first = 0
+    
     else:
-        months_first = min(11, _completed_months(jd, basis))
-
+        # 기존 첫해 월차 계산
+        if basis >= first_anniv:
+            months_first = 11
+        else:
+            months_first = min(11, _completed_months(jd, basis))
+    
     total += months_first
 
     # ---------------------------------------------------------
