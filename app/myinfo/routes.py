@@ -6,7 +6,7 @@ from flask import (
     flash
 )
 from flask_login import login_required, current_user
-from datetime import date, datetime, timedelta
+    from datetime import date, datetime, timedelta
 from app.myinfo import myinfo_bp
 from app.models import User, Vacation, AltLeaveLog
 from app.leave_utils import calculate_annual_leave
@@ -41,13 +41,14 @@ def myinfo():
         return redirect(url_for("myinfo.myinfo"))
 
     # ------------------------------------------------
-    # 2) 연차 계산(미래 승인 포함)
+    # 2) 연차 계산(직원관리와 동일)
     # ------------------------------------------------
     today = date.today()
-    
+
+    # 총 발생 연차
     total_leave = calculate_annual_leave(user.join_date)
-    
-    # 사용 연차: 시스템 이전 + 승인된 휴가 모두 포함
+
+    # 승인된 휴가만 적용(과거+미래)
     weights = {
         "연차": 1.0,
         "반차(전)": 0.5,
@@ -55,36 +56,34 @@ def myinfo():
         "반반차": 0.25,
         "토연차": 0.75,
     }
-    
+
     used_before = float(user.used_before_system or 0.0)
-    
+
     approved_events = Vacation.query.filter(
         ((Vacation.user_id == user.id) | (Vacation.target_user_id == user.id)),
-        Vacation.approved == True,
+        Vacation.approved.is_(True),
         Vacation.type.in_(weights.keys())
     ).all()
-    
+
     used_after = sum(weights.get(v.type, 0) for v in approved_events)
     used_total = round(used_before + used_after, 2)
-    
+
     # ------------------------------------------------
-    # 5) 대체연차 부여 로그
+    # 3) 대체연차 계산 (직원관리와 동일)
     # ------------------------------------------------
     name_key = (user.first_name or user.name or user.username or "").strip()
+
     logs_all = AltLeaveLog.query.order_by(AltLeaveLog.grant_date.desc()).all()
-    
+
     my_alt_logs = [
         log for log in logs_all
         if (log.department_summary or "").find(name_key) != -1
     ]
-    
-    # 5-1) 총 발생 대체연차
+
     total_alt_leave = sum(log.add_days for log in my_alt_logs)
-    alt_total = total_alt_leave
-    
-    # ------------------------------------------------
-    # 3) 대체연차 → 연차 차감
-    # ------------------------------------------------
+    alt_total = float(total_alt_leave)
+
+    # 대체연차 → 연차 차감 로직
     if used_total <= alt_total:
         alt_left = round(alt_total - used_total, 2)
         annual_left = float(total_leave)
@@ -93,11 +92,25 @@ def myinfo():
         alt_left = 0.0
         annual_left = round(float(total_leave) - remain_use, 2)
 
-    
     # ------------------------------------------------
-    # 6) 템플릿으로 전달
+    # 4) 입사 D-day 계산
     # ------------------------------------------------
-    # ⭐ full name 만들기
+    dday = 0
+    if user.join_date:
+        try:
+            jd = (
+                datetime.strptime(user.join_date, "%Y-%m-%d").date()
+                if isinstance(user.join_date, str)
+                else user.join_date
+            )
+            dday = (today - jd).days
+        except:
+            dday = 0
+
+    # ------------------------------------------------
+    # 6) 템플릿 전달 데이터
+    # ------------------------------------------------
+    # full name
     if user.last_name and user.first_name:
         full_name = f"{user.last_name}{user.first_name}"
     else:
@@ -106,7 +119,7 @@ def myinfo():
     view = {
         "id": user.username,
         "username": user.username,
-        "name": full_name,   # ← 여기!
+        "name": full_name,
         "birth": user.birthday,
         "address": user.address,
         "join_date": user.join_date,
@@ -118,6 +131,5 @@ def myinfo():
         "alt_left": alt_left,
         "department": user.department,
     }
-
 
     return render_template("myinfo.html", user=view, logs=my_alt_logs)
