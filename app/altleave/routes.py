@@ -96,3 +96,23 @@ def grant_alt_leave():
         users_by_dept=users_by_dept,
         logs=logs,
     )
+# ==========================
+# 대체연차 이력 삭제
+# ==========================
+@altleave_bp.route("/delete/<int:log_id>", methods=["POST"])
+@login_required
+def delete_log(log_id):
+
+    # 최고관리자만 삭제 가능
+    if not current_user.is_superadmin:
+        flash("삭제 권한이 없습니다.", "error")
+        return redirect(url_for("altleave.grant_alt_leave"))
+
+    log = AltLeaveLog.query.get_or_404(log_id)
+
+    # 삭제
+    db.session.delete(log)
+    db.session.commit()
+
+    flash("대체연차 이력이 삭제되었습니다.", "success")
+    return redirect(url_for("altleave.grant_alt_leave"))
