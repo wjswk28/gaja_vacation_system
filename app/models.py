@@ -41,7 +41,8 @@ class User(UserMixin, db.Model):
             if name_key and name_key in (log.department_summary or "")
         )
 
-
+def now_kst():
+    return datetime.utcnow() + timedelta(hours=9)
 
 class Vacation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -66,9 +67,6 @@ class NewHireChecklist(db.Model):
     department = db.Column(db.String(50))       # 관리자의 부서 기준
     items = db.Column(db.Text)                  # 체크 항목 JSON
 
-
-def now_kst():
-    return datetime.utcnow() + timedelta(hours=9)
 
 class AltLeaveLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
