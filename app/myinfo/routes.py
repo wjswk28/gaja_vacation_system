@@ -44,12 +44,10 @@ def myinfo():
     # 2) 연차 계산(미래 승인 포함)
     # ------------------------------------------------
     today = date.today()
-    yesterday = today - timedelta(days=1)
-
-    # 총 발생 연차(어제 기준)
+    
     total_leave = calculate_annual_leave(user.join_date)
-
-    # 사용 연차: 시스템 이전 + 승인된 휴가 모두 포함(미래 포함)
+    
+    # 사용 연차: 시스템 이전 + 승인된 휴가 모두 포함
     weights = {
         "연차": 1.0,
         "반차(전)": 0.5,
@@ -57,63 +55,44 @@ def myinfo():
         "반반차": 0.25,
         "토연차": 0.75,
     }
-
+    
     used_before = float(user.used_before_system or 0.0)
-
-    # 승인된 휴가만 카운트 (과거+미래 포함)
-    used_after = sum(
-        weights.get(v.type, 0)
-        for v in Vacation.query.filter(
-            ((Vacation.user_id == user.id) | (Vacation.target_user_id == user.id)),
-            Vacation.approved == True,
-            Vacation.type.in_(weights.keys())
-        ).all()
-    )
-
+    
+    approved_events = Vacation.query.filter(
+        ((Vacation.user_id == user.id) | (Vacation.target_user_id == user.id)),
+        Vacation.approved == True,
+        Vacation.type.in_(weights.keys())
+    ).all()
+    
+    used_after = sum(weights.get(v.type, 0) for v in approved_events)
     used_total = round(used_before + used_after, 2)
-
+    
     # ------------------------------------------------
-    # 3) 대체연차 차감 → 연차 차감 (음수 허용)
-    # ------------------------------------------------
-    alt_total = total_alt_leave
-
-    if used_total <= alt_total:
-        # 전체 대체연차에서 차감
-        alt_left = round(alt_total - used_total, 2)
-        annual_left = float(total_leave)  # 연차 그대로
-    else:
-        # 대체연차 모두 소진하고 나머지는 연차에서 차감
-        remain_use = used_total - alt_total
-        alt_left = 0.0
-        annual_left = round(float(total_leave) - remain_use, 2)  # 음수 허용
-
-    # ------------------------------------------------
-    # 4) 입사 D-day
-    # ------------------------------------------------
-    dday = 0
-    if user.join_date:
-        try:
-            jd = (
-                datetime.strptime(user.join_date, "%Y-%m-%d").date()
-                if isinstance(user.join_date, str)
-                else user.join_date
-            )
-            dday = (today - jd).days
-        except:
-            dday = 0
-
-    # ------------------------------------------------
-    # 5) 대체연차 부여 로그 (선택)
+    # 5) 대체연차 부여 로그
     # ------------------------------------------------
     name_key = (user.first_name or user.name or user.username or "").strip()
     logs_all = AltLeaveLog.query.order_by(AltLeaveLog.grant_date.desc()).all()
+    
     my_alt_logs = [
         log for log in logs_all
         if (log.department_summary or "").find(name_key) != -1
     ]
-
-    # 5-1) 총 발생 대체연차 계산
+    
+    # 5-1) 총 발생 대체연차
     total_alt_leave = sum(log.add_days for log in my_alt_logs)
+    alt_total = total_alt_leave
+    
+    # ------------------------------------------------
+    # 3) 대체연차 → 연차 차감
+    # ------------------------------------------------
+    if used_total <= alt_total:
+        alt_left = round(alt_total - used_total, 2)
+        annual_left = float(total_leave)
+    else:
+        remain_use = used_total - alt_total
+        alt_left = 0.0
+        annual_left = round(float(total_leave) - remain_use, 2)
+
     
     # ------------------------------------------------
     # 6) 템플릿으로 전달
