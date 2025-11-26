@@ -47,7 +47,7 @@ def myinfo():
     yesterday = today - timedelta(days=1)
 
     # 총 발생 연차(어제 기준)
-    total_leave = calculate_annual_leave(user.join_date, basis=yesterday)
+    total_leave = calculate_annual_leave(user.join_date)
 
     # 사용 연차: 시스템 이전 + 승인된 휴가 모두 포함(미래 포함)
     weights = {
@@ -75,7 +75,7 @@ def myinfo():
     # ------------------------------------------------
     # 3) 대체연차 차감 → 연차 차감 (음수 허용)
     # ------------------------------------------------
-    alt_total = float(user.alt_leave or 0.0)
+    alt_total = total_alt_leave
 
     if used_total <= alt_total:
         # 전체 대체연차에서 차감
