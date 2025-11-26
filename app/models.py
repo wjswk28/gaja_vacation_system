@@ -1,6 +1,7 @@
 from datetime import datetime, date, timedelta
 from flask_login import UserMixin
 from app import db, login_manager
+from app.models import now_kst
 
 
 # =====================
@@ -55,7 +56,7 @@ class Vacation(db.Model):
     type = db.Column(db.String(20))
     hours = db.Column(db.Float, nullable=True)    # 탄력근무 시간
     is_flex = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.now)
+    created_at = db.Column(db.DateTime, default=now_kst)
     approved = db.Column(db.Boolean, default=False)  # 승인 여부
 
     user = db.relationship("User", foreign_keys=[user_id])
