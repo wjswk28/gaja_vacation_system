@@ -71,33 +71,37 @@ def employee_list():
         departments = None  # 템플릿에서 드롭다운 숨길 때 사용
         employees_raw = User.query.filter_by(department=current_dept).all() if current_dept else []
 
-        # =========================
+    # =========================
     # 연차 / 대체연차 계산용 뷰 모델
     # =========================
+    from app.models import AltLeaveLog
+    
     output = []
     for emp in employees_raw:
-        # 🔹 총 연차 (입사일 기준 계산, 실패 시 기존 remaining_days 사용)
+    
+        # -------------------------
+        # 1) 총 발생 연차 계산
+        # -------------------------
         try:
             from app.leave_utils import calculate_annual_leave
             total_leave = calculate_annual_leave(emp.join_date)
         except Exception:
-            total_leave = float(emp.remaining_days or 0)
-
-        # 🔹 시스템 도입 전 사용 연차
+            total_leave = float(emp.remaining_days or 0.0)
+    
+        # 도입 전 사용 연차
         used_before = float(emp.used_before_system or 0.0)
-
-        # 🔹 Vacation 테이블에서 승인된 휴가만 집계
+    
+        # -------------------------
+        # 2) 승인된 휴가로 사용 연차 계산
+        # -------------------------
         approved_vacs = Vacation.query.filter(
-            Vacation.approved.is_(True),
-            or_(Vacation.user_id == emp.id,
-                Vacation.target_user_id == emp.id)
+            Vacation.approved == True,
+            or_(Vacation.user_id == emp.id, Vacation.target_user_id == emp.id)
         ).all()
-
+    
         used_from_events = 0.0
         for v in approved_vacs:
             t = (v.type or "").strip()
-
-            # ✅ 연차/반차/반반차/토연차만 "사용 연차"로 계산
             if t == "연차":
                 used_from_events += 1.0
             elif t == "토연차":
@@ -106,62 +110,57 @@ def employee_list():
                 used_from_events += 0.5
             elif t == "반반차":
                 used_from_events += 0.25
-            # 병가, 예비군, 탄력근무, 근무자 등은 여기선 0으로 둠
-
-        # 🔹 최종 사용 연차 = (도입 전) + (승인된 일정)
+    
         used_total = round(used_before + used_from_events, 2)
-
-        # ---------------------------------------------------------
-        # 대체연차 계산 (AltLeaveLog 기반 / 정확한 이름 매칭)
-        # ---------------------------------------------------------
-        from app.models import AltLeaveLog
-        
-        # 직원 정식 이름
-        name_key = (emp.first_name or emp.name or emp.username).strip()
-        
-        logs_all = AltLeaveLog.query.order_by(AltLeaveLog.grant_date.desc()).all()
-        
-        my_alt_logs = []
-        
-        for log in logs_all:
-            summary = log.department_summary or ""
-            
-            # summary 예시: "수술실(김영선, 이주현)"
-            if "(" in summary and ")" in summary:
-                inside = summary.split("(")[1].split(")")[0]
-                names = [n.strip() for n in inside.split(",")]
-                
-                if name_key in names:
-                    my_alt_logs.append(log)
-        
-        # 실제 총 발생 대체연차 계산
-        alt_total = sum(log.add_days for log in my_alt_logs)
-
-
-
-        # 🔹 대체연차 우선 차감 로직
+    
+        # -------------------------
+        # 3) 총 발생 대체연차 계산
+        # -------------------------
+        logs = AltLeaveLog.query.all()
+    
+        name_key = (emp.first_name or emp.name or emp.username or "").strip()
+        emp_logs = []
+    
+        for log in logs:
+            summary = (log.department_summary or "")
+            if (
+                f"({name_key})" in summary or
+                f"{name_key}," in summary or
+                f"{name_key})" in summary or
+                summary.endswith(name_key)
+            ):
+                emp_logs.append(log)
+    
+        alt_total = sum(l.add_days for l in emp_logs)
+    
+        # -------------------------
+        # 4) 대체연차 우선 차감
+        # -------------------------
         if used_total <= alt_total:
             alt_left = round(alt_total - used_total, 2)
-            annual_left = float(total_leave)    # 그대로 유지
+            annual_left = float(total_leave)
         else:
             remain_use = used_total - alt_total
             alt_left = 0.0
-            annual_left = round(float(total_leave) - remain_use, 2)   # ← 음수 허용
-
-
+            annual_left = round(float(total_leave) - remain_use, 2)
+    
+        # -------------------------
+        # 5) 출력 데이터 구성
+        # -------------------------
         output.append({
             "id": emp.id,
             "name": emp.name or emp.username,
             "username": emp.username,
             "join_date": emp.join_date,
             "total_leave": total_leave,
-            "used_total": used_total,           # 직원관리 테이블의 '사용'
-            "remaining_days": annual_left,      # 직원관리 테이블의 '잔여'
-            "alt_total": alt_total,             # 총 발생 대체연차 (이제 total_alt_leave)
-            "total_alt_leave": alt_total,       # ⭐ 템플릿에서 emp.total_alt_leave 를 쓰므로 반드시 필요
-            "alt_left": alt_left,               # 남은 대체연차 (alt_leave 기반)
+            "used_total": used_total,
+            "remaining_days": annual_left,
+            "alt_total": alt_total,
+            "total_alt_leave": alt_total,
+            "alt_left": alt_left,
             "is_admin": emp.is_admin,
         })
+
 
 
     return render_template(
