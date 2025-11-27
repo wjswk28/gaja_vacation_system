@@ -111,8 +111,32 @@ def employee_list():
         # 🔹 최종 사용 연차 = (도입 전) + (승인된 일정)
         used_total = round(used_before + used_from_events, 2)
 
-        # 🔹 총 발생 대체연차 (로그 전체 기반)
-        alt_total = float(emp.total_alt_leave or 0.0)
+        # ---------------------------------------------------------
+        # 대체연차 계산 (AltLeaveLog 기반 / 정확한 이름 매칭)
+        # ---------------------------------------------------------
+        from app.models import AltLeaveLog
+        
+        # 직원 정식 이름
+        name_key = (emp.first_name or emp.name or emp.username).strip()
+        
+        logs_all = AltLeaveLog.query.order_by(AltLeaveLog.grant_date.desc()).all()
+        
+        my_alt_logs = []
+        
+        for log in logs_all:
+            summary = log.department_summary or ""
+            
+            # summary 예시: "수술실(김영선, 이주현)"
+            if "(" in summary and ")" in summary:
+                inside = summary.split("(")[1].split(")")[0]
+                names = [n.strip() for n in inside.split(",")]
+                
+                if name_key in names:
+                    my_alt_logs.append(log)
+        
+        # 실제 총 발생 대체연차 계산
+        alt_total = sum(log.add_days for log in my_alt_logs)
+
 
 
         # 🔹 대체연차 우선 차감 로직
