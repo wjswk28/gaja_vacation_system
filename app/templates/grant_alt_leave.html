@@ -69,49 +69,63 @@
     {% if logs %}
     <div class="space-y-3">
       {% for log in logs %}
+      <!-- 펼침/접기 카드 -->
       <div class="relative border border-sky-100 rounded-lg shadow-sm overflow-hidden transition hover:shadow-md bg-white"
            x-data="{ open: false }">
       
-        <!-- ❌ 오른쪽 상단 X 버튼 -->
+        <!-- ❌ 삭제 버튼: button 금지 → span 사용 -->
         <form method="POST"
               action="{{ url_for('altleave.delete_log', log_id=log.id) }}"
               onsubmit="return confirm('정말 삭제할까요?');"
               class="absolute right-2 top-2 z-20">
-          <button type="submit"
-                  class="text-slate-400 hover:text-red-500 transition">
+      
+          <span class="cursor-pointer text-slate-400 hover:text-red-500 transition"
+                onclick="this.closest('form').submit()">
             ✕
-          </button>
+          </span>
         </form>
       
-        <!-- 기존 펼침 버튼 -->
-        <button @click="open = !open"
-                class="w-full flex justify-between items-center px-4 py-2 bg-sky-50 hover:bg-sky-100 transition">
       
-          <div class="flex flex-col sm:flex-row sm:items-center sm:gap-4 text-left">
-            <span class="font-semibold text-slate-700 text-sm sm:text-base">{{ log.grant_date.strftime('%Y-%m-%d') }}</span>
+        <!-- 펼침 버튼 (button 안에는 button 절대 넣지 않음!) -->
+        <button @click="open = !open"
+                class="w-full flex justify-between items-center px-4 py-3 bg-sky-50 hover:bg-sky-100 transition text-left">
+      
+          <!-- 날짜 + 사유 -->
+          <div class="flex flex-col sm:flex-row sm:items-center sm:gap-4">
+            <span class="font-semibold text-slate-700 text-sm sm:text-base">
+              {{ log.grant_date.strftime('%Y-%m-%d') }}
+            </span>
             <span class="text-slate-600 text-sm truncate max-w-[200px] sm:max-w-[300px]">
               {{ log.reason }}
             </span>
           </div>
       
-          <!-- 오른쪽 정렬: 1.0일 + 삭제버튼 -->
+          <!-- 오른쪽: 부여일수 + X 아이콘 -->
           <div class="flex items-center gap-3">
-              <span class="text-sky-700 font-semibold text-sm">{{ log.add_days }} 일</span>
-          
-              <!-- X 버튼 -->
-              <button type="button"
-                      @click.stop="deleteAlt(log.id)"
-                      class="text-slate-400 hover:text-red-500 transition">
-                  <i data-lucide="x" class="w-4 h-4"></i>
-              </button>
+      
+            <span class="text-sky-700 font-semibold text-sm">
+              {{ log.add_days }} 일
+            </span>
+      
+            <!-- 여기도 button → span 변경 -->
+            <span class="cursor-pointer text-slate-400 hover:text-red-500 transition"
+                  @click.stop="deleteAlt(log.id)">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </span>
+      
           </div>
-        </button>
+      
+        </button>  <!-- ⬅ 반드시 닫힘 -->
+      
+        <!-- 펼침 내용 -->
         <div x-show="open" x-transition
              class="px-5 py-3 bg-white border-t border-sky-100 text-sm text-slate-700 space-y-1">
           <p><span class="font-medium text-slate-500">📅 적용일자:</span> {{ log.apply_date }}</p>
           <p><span class="font-medium text-slate-500">📝 사유:</span> {{ log.reason }}</p>
           <p><span class="font-medium text-slate-500">👥 적용 부서 및 인원:</span> {{ log.department_summary }}</p>
-          <p><span class="font-medium text-slate-500">⏱️ 부여일수:</span> <span class="text-sky-600 font-semibold">{{ log.add_days }} 일</span></p>
+          <p><span class="font-medium text-slate-500">⏱️ 부여일수:</span>
+            <span class="text-sky-600 font-semibold">{{ log.add_days }} 일</span>
+          </p>
         </div>
       </div>
       {% endfor %}
