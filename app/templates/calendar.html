@@ -703,15 +703,20 @@ document.addEventListener("DOMContentLoaded", async function () {
       }
 
       // 🔹 일반 사용자 토요일 로직
-      if (day === 6) {
-          if (currentDept === "원무과") {
-            // 원무과 일반직원만 토요일 토연차 신청 가능
+      if (day === 6 && !(isAdmin || isSuperadmin)) {
+        const allowedDepts = ["원무과", "물리치료실", "영상의학과", "심사과", "외래", "진단검사"];
+
+        if (allowedDepts.includes(currentDept)) {
+            // 허용 부서 일반 직원은 토연차 신청 가능
             openVacationModal();
             return;
-          }
-          showToast("토요일 휴가/근무 지정은 관리자만 가능합니다.", "error");
-          return;
+        }
+
+        // 허용되지 않은 부서
+        showToast("토요일 휴가/근무 지정은 관리자만 가능합니다.", "error");
+        return;
       }
+
 
       // 🔹 과거 날짜 금지
       if (clickedDate < todayZero) {
