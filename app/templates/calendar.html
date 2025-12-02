@@ -618,18 +618,21 @@ document.addEventListener("DOMContentLoaded", async function () {
       // ⭐ 휴가 버튼 보이기/숨기기 — 일반 직원에게만 적용
       const vacBtns = document.querySelectorAll(".vac-btn");
 
+      const TOYEONCHA_DEPTS = ["원무과", "물리치료실", "영상의학과", "심사과", "외래", "진단검사"];
+
       // 관리자 / 슈퍼관리자는 버튼 숨김 로직을 아예 적용하지 않음!!
       if (!(isAdmin || isSuperadmin)) {
           vacBtns.forEach(btn => {
               const isToyeoncha = btn.dataset.type === "토연차";
+              const isDeptAllowed = TOYEONCHA_DEPTS.includes(currentDept);
 
-              // ① 다른 부서 일반 직원 → 토연차 숨김
-              if (currentDept !== "원무과") {
+              // ① 토연차 허용 부서가 아닐 때 → 무조건 숨김
+              if (!isDeptAllowed) {
                   btn.style.display = isToyeoncha ? "none" : "inline-flex";
                   return;
               }
 
-              // ② 원무과 일반 직원
+              // ② 허용 부서일 때
               if (day === 6) {
                   // 토요일 → 토연차만 표시
                   btn.style.display = isToyeoncha ? "inline-flex" : "none";
@@ -1323,26 +1326,30 @@ function openAdminModal(dateStr) {
   // ==========================
   // ⭐ 휴가 종류 버튼 필터링
   // ==========================
+  const TOYEONCHA_DEPTS = ["원무과", "물리치료실", "영상의학과", "심사과", "외래", "진단검사"];
+  
   const vacBtns = document.querySelectorAll("#vacationTab .vac-btn");
-
+  
   vacBtns.forEach(btn => {
-    const isToyeoncha = btn.dataset.type === "토연차";
-
-    // ① 다른 부서 관리자는 무조건 토연차 숨김
-    if (currentDept !== "원무과") {
-      btn.style.display = isToyeoncha ? "none" : "inline-flex";
-      return;
-    }
-
-    // ② 원무과 관리자
-    if (day === 6) {
-      // ⭐ 토요일 → "토연차만 표시"
-      btn.style.display = isToyeoncha ? "inline-flex" : "none";
-    } else {
-      // ⭐ 평일 → "토연차 숨김 + 나머지는 표시"
-      btn.style.display = isToyeoncha ? "none" : "inline-flex";
-    }
+      const isToyeoncha = btn.dataset.type === "토연차";
+      const isDeptAllowed = TOYEONCHA_DEPTS.includes(currentDept);
+  
+      // ① 토연차 허용 부서가 아닐 때 → 무조건 숨김
+      if (!isDeptAllowed) {
+          btn.style.display = isToyeoncha ? "none" : "inline-flex";
+          return;
+      }
+  
+      // ② 토연차 허용 부서일 때
+      if (day === 6) {
+          // 토요일 → 토연차만 표시
+          btn.style.display = isToyeoncha ? "inline-flex" : "none";
+      } else {
+          // 평일 → 토연차 숨김
+          btn.style.display = isToyeoncha ? "none" : "inline-flex";
+      }
   });
+
 
   // ==========================
   // 모달 보이기 (위치/배경은 CSS로 처리)
