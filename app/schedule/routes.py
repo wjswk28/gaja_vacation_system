@@ -181,8 +181,11 @@ def export_schedule(dept):
         if weekday == 5:  # 토요일
             if value == "근무자":
                 value = "·"
-            elif value != "토연차":
-                value = "/"
+            elif value == "토연차":
+                value = "토연차"   # ← 토연차 그대로 표시
+            else:
+                value = "/"        # ← 나머지 토요일 일정만 "/"
+
 
         cell = ws.cell(row=row, column=col)
         cell.value = value
@@ -203,16 +206,16 @@ def export_schedule(dept):
     weights = {"연차": 1.0, "반차": 0.5, "반반차": 0.25, "토연차": 0.75}
     sick_types = ["병가", "예비군"]
 
-    for i, name in enumerate(names):
+    for i, user in enumerate(employees):
         row = 8 + i
 
+        # 이 직원의 이벤트만 선택 (ID 기반 → 100% 정확)
         user_events = [
             v for v in events
-            if find_name_index(v.name.strip(), [name]) is not None
-            and v.start_date.month == month
+            if v.user_id == user.id and v.start_date.month == month
         ]
 
-        # 연차 합계
+        # 연차 합계 (반차 합치기 / 토연차 0.75 반영)
         total_leave = sum(
             weights.get(
                 "반차" if v.type in ["반차(전)", "반차(후)"] else v.type,
@@ -221,7 +224,7 @@ def export_schedule(dept):
             for v in user_events
         )
 
-        # 병가/예비군 개수
+        # 병가 / 예비군
         total_sick = sum(1 for v in user_events if v.type in sick_types)
 
         # AI (연차)
@@ -233,6 +236,8 @@ def export_schedule(dept):
         aj = ws[f"AJ{row}"]
         aj.value = total_sick
         aj.alignment = Alignment(horizontal="center", vertical="center")
+
+
 
     # ====== 인쇄 설정 ======
     last_row = 8 + len(names) - 1
