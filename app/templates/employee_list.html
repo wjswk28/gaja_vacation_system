@@ -53,6 +53,7 @@
             <th class="py-2 px-2 border-r border-sky-200">잔여</th>
             {% if is_superadmin %}
               <th class="py-2 px-2 border-r border-sky-200">관리자 지정</th>
+              <th class="py-2 px-2 border-r border-sky-200">서명</th>
               <th class="py-2 px-2 border-r border-sky-200">수정</th>
               <th class="py-2 px-2">삭제</th>
             {% endif %}
@@ -121,6 +122,37 @@
                 </button>
               </td>
 
+              <!-- ✅ 서명 -->
+              {% set sig_fn = emp.signature_image.split('/')[-1] if emp.signature_image else '' %}
+              {% set sig_url = url_for('employee.signature_file', filename=sig_fn) if sig_fn else '' %}
+
+              <td class="py-2 border-r border-slate-100 text-center"
+                  id="sig-cell-{{ emp.id }}"
+                  data-user-id="{{ emp.id }}"
+                  data-sig-url="{{ sig_url }}">
+
+                <div class="flex items-center justify-center gap-2">
+                  {% if sig_url %}
+                    <button type="button"
+                            class="sig-open-btn text-xs px-2 py-1 rounded bg-white border border-slate-300 hover:bg-sky-50 text-sky-700"
+                            data-mode="view">
+                      보기
+                    </button>
+                    <button type="button"
+                            class="sig-delete-btn text-xs px-2 py-1 rounded bg-rose-500 text-white hover:bg-rose-600"
+                            data-user-id="{{ emp.id }}">
+                      삭제
+                    </button>
+                  {% else %}
+                    <button type="button"
+                            class="sig-open-btn text-xs px-2 py-1 rounded bg-sky-600 text-white hover:bg-sky-700"
+                            data-mode="add">
+                      추가
+                    </button>
+                  {% endif %}
+                </div>
+              </td>
+
               <!-- 수정 -->
               <td class="py-2 border-r border-slate-100">
                 <a href="{{ url_for('employee.edit_employee', emp_id=emp.id) }}"
@@ -170,9 +202,118 @@ th, td {
   }
 }
 </style>
+<!-- ===============================
+    서명 업로드 모달 (총관리자)
+=============================== -->
+<div id="signatureModal" style="display:none;" class="fixed inset-0 bg-black/40 z-50">
+  <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl w-96 p-6 shadow-lg">
+    <h3 class="text-lg font-bold text-sky-700 mb-4">
+      서명 이미지 업로드
+    </h3>
+    <!-- ✅ 미리보기 영역 (여기에 넣기) -->
+    <div class="mb-4">
+      <p class="text-xs text-slate-500 mb-2">미리보기</p>
+
+      <div class="border rounded-lg bg-slate-50 p-2 flex items-center justify-center">
+        <img id="signaturePreview"
+            src=""
+            alt="signature preview"
+            class="hidden max-h-28 object-contain">
+        <div id="signatureEmptyText" class="text-xs text-slate-400">
+          등록된 서명이 없습니다.
+        </div>
+      </div>
+    </div>
+
+    <form id="signatureForm" enctype="multipart/form-data">
+      <input type="hidden" name="user_id" id="signatureUserId">
+
+      <input type="file"
+            name="signature"
+            accept="image/png, image/jpg, image/jpeg"
+            required
+            class="block w-full text-sm mb-4">
+
+      <div class="flex justify-end gap-2">
+        <button type="button"
+                onclick="closeSignatureModal()"
+                class="px-3 py-1 rounded bg-gray-300 text-sm">
+          취소
+        </button>
+
+        <button id="sigSaveBtn" type="submit"
+                class="px-3 py-1 rounded bg-sky-600 text-white text-sm">
+          저장
+        </button>
+      </div>
+    </form>
+    </div>
+  </div>
+</div>
 
 <!-- JS 그대로 유지 -->
 <script>
+/* ===== 수정 1) 미리보기 + 셀 갱신 유틸 ===== */
+function setPreview(url) {
+  const img = document.getElementById("signaturePreview");
+  const empty = document.getElementById("signatureEmptyText");
+  if (!img || !empty) return;
+
+  if (!url) {
+    img.src = "";
+    img.classList.add("hidden");
+    empty.classList.remove("hidden");
+    return;
+  }
+
+  // ✅ blob/data는 ?v 같은 쿼리 붙으면 깨짐 → 들어온 값에 쿼리가 있으면 잘라버림
+  const isBlob = url.startsWith("blob:");
+  const isData = url.startsWith("data:");
+  if ((isBlob || isData) && url.includes("?")) {
+    url = url.split("?")[0];
+  }
+
+  if (isBlob || isData) {
+    img.src = url;
+  } else {
+    img.src = url + (url.includes("?") ? "&" : "?") + "v=" + Date.now();
+  }
+
+  img.classList.remove("hidden");
+  empty.classList.add("hidden");
+}
+
+function updateSignatureCell(userId, sigUrl) {
+  const cell = document.getElementById(`sig-cell-${userId}`);
+  if (!cell) return;
+
+  cell.dataset.userId = userId;   // ✅ 추가 (안정성)
+  cell.dataset.sigUrl = sigUrl || "";
+  
+  if (sigUrl) {
+    cell.innerHTML = `
+        <div class="flex items-center justify-center gap-2">
+            <button type="button"
+                    class="sig-open-btn text-xs px-2 py-1 rounded bg-white border border-slate-300 hover:bg-sky-50 text-sky-700"
+                    data-mode="view">보기</button>
+
+            <button type="button"
+                    class="sig-delete-btn text-xs px-2 py-1 rounded bg-rose-500 text-white hover:bg-rose-600"
+                    data-user-id="${userId}">삭제</button>
+        </div>
+    `;
+  } else {
+        cell.innerHTML = `
+            <div class="flex items-center justify-center gap-2">
+                <button type="button"
+                        class="sig-open-btn text-xs px-2 py-1 rounded bg-sky-600 text-white hover:bg-sky-700"
+                        data-mode="add">추가</button>
+                </div>
+    `;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   // ✅ 관리자 지정 버튼
   document.querySelectorAll(".toggle-admin-btn").forEach(btn => {
@@ -227,5 +368,115 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 });
+/* ===== 수정 2) 서명 버튼(보기/변경/추가) 클릭 → 모달 오픈 (이벤트 위임) ===== */
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".sig-open-btn");
+  if (!btn) return;
+
+  const cell = btn.closest("td[id^='sig-cell-']");
+  if (!cell) return;
+
+  const userId = cell.dataset.userId;
+  const sigUrl = cell.dataset.sigUrl || "";
+  const mode = btn.dataset.mode;
+
+  openSignatureModal(userId, sigUrl);
+
+  // ✅ 추가(add)일 때만 파일선택창 자동 오픈
+  if (mode === "add") {
+    setTimeout(() => {
+      document.querySelector("#signatureForm input[type='file']")?.click();
+    }, 150);
+  }
+});
+
+function openSignatureModal(userId, sigUrl) {
+  document.getElementById("signatureUserId").value = userId;
+
+  const fileInput = document.querySelector("#signatureForm input[type='file']");
+  if (fileInput) fileInput.value = "";
+
+  setPreview(sigUrl);
+
+  const modal = document.getElementById("signatureModal");
+  modal.style.display = "block";  // ✅ 강제 오픈
+}
+
+function closeSignatureModal() {
+  const modal = document.getElementById("signatureModal");
+  modal.style.display = "none";   // ✅ 강제 닫기
+  setPreview("");                 // 다음에 열 때 깨진 미리보기 방지
+}
+
+
+/* 파일 선택 즉시 로컬 미리보기 */
+document.querySelector("#signatureForm input[type='file']")?.addEventListener("change", function () {
+  if (this.files && this.files[0]) {
+    const tempUrl = URL.createObjectURL(this.files[0]);
+    setPreview(tempUrl);
+  }
+});
+
+
+// ✅ 서명 업로드 처리 (이벤트 위임 - 저장 버튼 먹통 해결)
+document.addEventListener("submit", async (e) => {
+  if (e.target && e.target.id === "signatureForm") {
+    e.preventDefault();
+
+    console.log("✅ signatureForm submit caught"); // 디버깅용
+
+    const form = e.target;
+    const formData = new FormData(form);
+
+    try {
+      const res = await fetch("/employee/upload_signature", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await res.json();
+      console.log("✅ upload response:", data); // 디버깅용
+
+      if (data.status === "success") {
+        const userId = document.getElementById("signatureUserId").value;
+
+        setPreview(data.signature_url);
+        updateSignatureCell(userId, data.signature_url);
+
+        closeSignatureModal(); // 원하면 닫기
+      } else {
+        alert(data.message || "업로드 실패");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("서버 오류가 발생했습니다.");
+    }
+  }
+});
+
+// ✅ 서명 삭제 버튼 처리
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".sig-delete-btn");
+  if (!btn) return;
+
+  const userId = btn.dataset.userId;
+  if (!confirm("서명을 삭제할까요?")) return;
+
+  try {
+    const res = await fetch(`/employee/delete_signature/${userId}`, { method: "POST" });
+    const data = await res.json();
+
+    if (data.status === "success") {
+      updateSignatureCell(userId, ""); // 즉시 '추가'로 변경
+      closeSignatureModal();           // 모달 열려있으면 닫기
+    } else {
+      alert(data.message || "삭제 실패");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("서버 오류가 발생했습니다.");
+  }
+});
+
 </script>
 {% endblock %}

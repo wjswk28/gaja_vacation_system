@@ -5,7 +5,10 @@ from flask import (
     url_for,
     jsonify,
     session,
-    flash
+    current_app,
+    flash,
+    send_from_directory,
+    abort
 )
 from flask_login import login_required, current_user
 from datetime import datetime, date
@@ -13,6 +16,9 @@ from app.employee import employee_bp
 from app.models import User, Vacation
 from app import db
 from sqlalchemy import or_
+import os
+from werkzeug.utils import secure_filename
+import uuid
 
 
 # =====================================
@@ -159,6 +165,9 @@ def employee_list():
             "total_alt_leave": alt_total,
             "alt_left": alt_left,
             "is_admin": emp.is_admin,
+
+            # ✅ 추가
+            "signature_image": emp.signature_image,
         })
 
 
@@ -442,6 +451,70 @@ def toggle_admin(emp_id):
         "message": "관리자 권한이 변경되었습니다."
     })
 
+@employee_bp.route("/signature/<path:filename>")
+@login_required
+def signature_file(filename):
+    if not current_user.is_superadmin:
+        abort(403)
+
+    base_dir = current_app.config["STORAGE_ROOT"]
+    sig_dir = os.path.join(base_dir, "signatures")
+    return send_from_directory(sig_dir, filename)
+
+# =====================================
+# 서명 이미지 업로드 (총관리자 전용)
+# =====================================
+ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+
+@employee_bp.route("/upload_signature", methods=["POST"])
+@login_required
+def upload_signature():
+    if not current_user.is_superadmin:
+        return jsonify({"status": "error", "message": "총관리자만 가능합니다."}), 403
+
+    user_id = request.form.get("user_id")
+    file = request.files.get("signature")
+
+    if not user_id or not file or file.filename.strip() == "":
+        return jsonify({"status": "error", "message": "잘못된 요청입니다."}), 400
+
+    user = User.query.get_or_404(user_id)
+
+    # 저장 폴더
+    base_dir = current_app.config["STORAGE_ROOT"]
+    sig_dir = os.path.join(base_dir, "signatures")
+    os.makedirs(sig_dir, exist_ok=True)
+
+    # 확장자 체크
+    ext = os.path.splitext(file.filename.lower())[1]
+    if ext not in ALLOWED_EXT:
+        return jsonify({"status": "error", "message": "png/jpg/jpeg/webp만 업로드 가능합니다."}), 400
+
+    # 기존 파일 삭제
+    if user.signature_image:
+        old_name = user.signature_image.split("/")[-1]
+        old_path = os.path.join(sig_dir, old_name)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    # 새 파일명
+    new_name = secure_filename(f"sig_{user.id}_{uuid.uuid4().hex}{ext}")
+    save_path = os.path.join(sig_dir, new_name)
+    file.save(save_path)
+
+    # DB 저장 (파일명만 저장하는 방식 권장)
+    user.signature_image = new_name
+    db.session.commit()
+
+    # ✅ 프론트에서 바로 쓸 URL 같이 반환
+    sig_url = url_for("employee.signature_file", filename=new_name)
+
+    return jsonify({
+        "status": "success",
+        "message": "서명 이미지가 저장되었습니다.",
+        "signature_filename": new_name,
+        "signature_url": sig_url
+    })
 
 # =====================================
 # 직원 삭제
@@ -453,10 +526,44 @@ def delete_employee(emp_id):
         return jsonify({"status": "error", "message": "삭제 권한이 없습니다."})
 
     emp = User.query.get_or_404(emp_id)
+
+    # ✅ 서명 파일 삭제
+    if emp.signature_image:
+        base_dir = current_app.config["STORAGE_ROOT"]
+        sig_dir = os.path.join(base_dir, "signatures")
+        fname = emp.signature_image.split("/")[-1]
+        fpath = os.path.join(sig_dir, fname)
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
     db.session.delete(emp)
     db.session.commit()
 
-    return jsonify({
-        "status": "success",
-        "message": "직원이 삭제되었습니다."
-    })
+    return jsonify({"status": "success", "message": "직원이 삭제되었습니다."})
+
+
+# =====================================
+# 서명 이미지 삭제 (총관리자 전용)
+# =====================================
+@employee_bp.route("/delete_signature/<int:user_id>", methods=["POST"])
+@login_required
+def delete_signature(user_id):
+    if not current_user.is_superadmin:
+        return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
+
+    user = User.query.get_or_404(user_id)
+
+    # 파일 삭제
+    if user.signature_image:
+        base_dir = current_app.config["STORAGE_ROOT"]
+        sig_dir = os.path.join(base_dir, "signatures")
+        fname = user.signature_image.split("/")[-1]
+        fpath = os.path.join(sig_dir, fname)
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+    user.signature_image = None
+    db.session.commit()
+
+    return jsonify({"status": "success", "message": "서명이 삭제되었습니다."})
+

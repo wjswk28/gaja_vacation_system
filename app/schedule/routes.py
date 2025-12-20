@@ -2,7 +2,7 @@ from flask import request, jsonify, send_file, current_app
 from flask_login import login_required
 from datetime import datetime
 from app.schedule import schedule_bp
-from app.models import User, Vacation
+from app.models import User, Vacation, MonthLock
 from app.schedule.utils import (
     thin_border,
     thin_side,
@@ -12,10 +12,11 @@ from app.schedule.utils import (
 import calendar
 import io
 import os
-
+from app import db
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from copy import copy
+from openpyxl.drawing.image import Image as XLImage
 
 # --- 세로 굵은선 설정용 ---
 THIN = Side(style="thin", color="000000")
@@ -31,7 +32,6 @@ def apply_vertical_border(cell, left=False, right=False):
 
 LEFT_MEDIUM_COLS = [1]  # A열 왼쪽 굵은선
 RIGHT_MEDIUM_COLS = [2, 33, 34, 35, 36]  # B, AG, AH, AI, AJ 열 오른쪽 굵은선
-
 
 # =========================================================
 # 근무표 자동 생성 (블루프린트 버전)
@@ -253,6 +253,76 @@ def export_schedule(dept):
     ws.page_setup.horizontalCentered = True
     ws.page_setup.verticalCentered = True
     ws.print_title_rows = "1:7"
+
+    # =========================================================
+    # ✅ (확정된 달이면) 중간관리자 서명 이미지를 AA3에 삽입
+    # =========================================================
+    dept_key = (dept or "").strip()
+    lk = MonthLock.query.filter_by(department=dept_key, year=year, month=month).first()
+
+    if lk and lk.locked and lk.locked_by:
+        signer = db.session.get(User, int(lk.locked_by))
+        sig = (getattr(signer, "signature_image", None) or "").strip() if signer else ""
+
+        sig_path = None
+
+        def resolve_signature_path(sig_value: str):
+            if not sig_value:
+                return None
+
+            s = sig_value.strip().strip('"').strip("'")
+            s = s.replace("\\", os.sep).replace("/", os.sep)
+            s = os.path.normpath(s)
+
+            if os.path.exists(s):
+                return s
+
+            bases = []
+            storage_root = current_app.config.get("STORAGE_ROOT")
+            if storage_root:
+                bases.append(storage_root)
+            bases.append(current_app.instance_path)
+
+            parts = s.split(os.sep)
+            low = [p.lower() for p in parts]
+
+            if "instance" in low:
+                idx = low.index("instance")
+                tail = os.path.join(*parts[idx + 1:]) if idx + 1 < len(parts) else ""
+                if tail:
+                    p = os.path.join(current_app.instance_path, tail)
+                    if os.path.exists(p):
+                        return p
+
+            for base in bases:
+                p = os.path.join(base, s.lstrip(os.sep))
+                if os.path.exists(p):
+                    return p
+
+                if "signatures" in low:
+                    idx = low.index("signatures")
+                    tail = os.path.join(*parts[idx:])
+                    p2 = os.path.join(base, tail)
+                    if os.path.exists(p2):
+                        return p2
+
+                p3 = os.path.join(base, "signatures", os.path.basename(s))
+                if os.path.exists(p3):
+                    return p3
+
+            return None
+
+        sig_path = resolve_signature_path(sig)
+
+        if sig_path:
+            img = XLImage(sig_path)
+            ws.add_image(img, "AA3")
+        else:
+            current_app.logger.warning(
+                "Month locked but signature file missing. dept=%s %04d-%02d locked_by=%s sig=%s",
+                dept_key, year, month, lk.locked_by, sig
+            )
+
 
     # ====== 파일 저장 후 전송 ======
     output = io.BytesIO()

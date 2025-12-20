@@ -6,12 +6,13 @@ from flask import (
     request,
     jsonify,
     session,
+    current_app
 )
 from flask_login import login_required, current_user
-from datetime import datetime
-
+from datetime import datetime, date
+import calendar
 from app.calendar_page import calendar_bp
-from app.models import Vacation, User
+from app.models import Vacation, User, MonthLock
 from app import db
 
 
@@ -236,6 +237,117 @@ def get_events():
 
     return jsonify(event_list)
 
+def _get_lock(dept: str, year: int, month: int):
+    return MonthLock.query.filter_by(department=dept, year=year, month=month).first()
+
+def _is_locked(dept: str, year: int, month: int) -> bool:
+    lk = _get_lock(dept, year, month)
+    return bool(lk and lk.locked)
+
+def _can_confirm_target_month(year: int, month: int) -> bool:
+    """
+    ✅ 확정 가능 기간:
+      - '확정 대상 월(year, month)'의 29일 ~ (다음 달) 4일 까지 (포함)
+      - 예) 2025년 11월 확정 가능: 2025-11-29 ~ 2025-12-04
+    """
+    today = date.today()
+
+    # month의 마지막 날짜(2월 등 예외 대비)
+    last_day = calendar.monthrange(year, month)[1]
+    start_day = 29 if last_day >= 29 else last_day  # 2월(28일) 같은 달은 마지막 날부터
+
+    start = date(year, month, start_day)
+
+    # 다음 달 계산
+    next_year, next_month = year, month + 1
+    if next_month == 13:
+        next_month = 1
+        next_year += 1
+
+    end = date(next_year, next_month, 4)
+
+    return start <= today <= end
+
+
+
+
+@calendar_bp.route("/month_lock/status")
+@login_required
+def month_lock_status():
+    dept = request.args.get("dept") or (session.get("department") or current_user.department)
+    year = int(request.args.get("year"))
+    month = int(request.args.get("month"))
+
+    locked = _is_locked(dept, year, month)
+    can_confirm = _can_confirm_target_month(year, month) and (not locked)
+
+    return jsonify({
+        "dept": dept,
+        "year": year,
+        "month": month,
+        "locked": locked,
+        "can_confirm": can_confirm,
+    })
+
+@calendar_bp.route("/month_lock/confirm", methods=["POST"])
+@login_required
+def month_lock_confirm():
+    # ✅ 중간관리자(관리자)만 “확정” 가능
+    is_admin = bool(getattr(current_user, "is_admin", False)) or (str(getattr(current_user, "department", "")).strip() == "관리자")
+    if not is_admin:
+        return jsonify({"status": "error", "message": "관리자만 확정할 수 있습니다."}), 403
+
+    data = request.get_json(silent=True) or {}
+    dept = (data.get("dept") or session.get("department") or current_user.department)
+    year = int(data.get("year"))
+    month = int(data.get("month"))
+
+    # ✅ 29일 ~ 다음 달 4일 + 해당 년월에서만 확정 가능
+    if not _can_confirm_target_month(year, month):
+        return jsonify({"status": "error", "message": "확정은 해당 월의 29일 ~ 다음 달 4일에만 가능합니다."}), 400
+
+    sig = (getattr(current_user, "signature_image", None) or "").strip()
+    if not sig:
+        return jsonify({"status": "error", "message": "서명이 등록되어 있어야 확정할 수 있습니다. (내정보에서 서명 등록 후 확정하세요)"}), 400
+
+    lk = _get_lock(dept, year, month)
+    if not lk:
+        lk = MonthLock(department=dept, year=year, month=month)
+
+    lk.locked = True
+    lk.locked_at = datetime.now()
+    lk.locked_by = current_user.id
+
+    db.session.add(lk)
+    db.session.commit()
+
+    return jsonify({"status": "success", "message": f"{year}년 {month}월 확정 완료"})
+
+@calendar_bp.route("/month_lock/unlock", methods=["POST"])
+@login_required
+def month_lock_unlock():
+    # ✅ 총관리자만 “확정 해제” 가능
+    if not bool(getattr(current_user, "is_superadmin", False)):
+        return jsonify({"status": "error", "message": "총관리자만 확정 해제할 수 있습니다."}), 403
+
+    data = request.get_json(silent=True) or {}
+    dept = (data.get("dept") or session.get("department") or current_user.department)
+    year = int(data.get("year"))
+    month = int(data.get("month"))
+
+    lk = _get_lock(dept, year, month)
+    if not lk or not lk.locked:
+        return jsonify({"status": "success", "message": "이미 확정 해제 상태입니다."})
+
+    # ✅ 해제 처리
+    lk.locked = False
+    lk.locked_at = None
+    lk.locked_by = None
+
+    db.session.add(lk)
+    db.session.commit()
+
+    return jsonify({"status": "success", "message": f"{year}년 {month}월 확정 해제 완료"})
 
 # ============================================
 # ✅ 특정 날짜의 승인 대기 휴가 목록 조회 API
@@ -274,11 +386,21 @@ def approve_request(event_id):
     if not v:
         return jsonify({"status": "error", "message": "일정을 찾을 수 없습니다."})
 
+    # ✅ 확정된 달이면 총관리자만 승인 가능
+    year = int(str(v.start_date)[:4])
+    month = int(str(v.start_date)[5:7])
+    dept = None
+    u = User.query.get(v.user_id) if v.user_id else None
+    dept = (u.department if u else (session.get("department") or current_user.department))
+
+    if _is_locked(dept, year, month) and (not current_user.is_superadmin):
+        return jsonify({"status": "error", "message": "확정된 달입니다. 총관리자만 승인/수정할 수 있습니다."}), 403
+
     v.approved = True
     db.session.commit()
-
     return jsonify({"status": "approved"})
-#------------------------------------------
+
+
 @calendar_bp.route("/reject_request/<int:event_id>", methods=["POST"])
 @login_required
 def reject_request(event_id):
@@ -286,10 +408,19 @@ def reject_request(event_id):
     if not v:
         return jsonify({"status": "error", "message": "일정을 찾을 수 없습니다."})
 
+    # ✅ 확정된 달이면 총관리자만 삭제 가능
+    year = int(str(v.start_date)[:4])
+    month = int(str(v.start_date)[5:7])
+    u = User.query.get(v.user_id) if v.user_id else None
+    dept = (u.department if u else (session.get("department") or current_user.department))
+
+    if _is_locked(dept, year, month) and (not current_user.is_superadmin):
+        return jsonify({"status": "error", "message": "확정된 달입니다. 총관리자만 삭제/수정할 수 있습니다."}), 403
+
     db.session.delete(v)
     db.session.commit()
-
     return jsonify({"status": "deleted"})
+
 
 # ============================================
 # ✅ 공휴일 API 연동 라우트

@@ -2,7 +2,7 @@ from flask import (request, Blueprint, render_template, redirect, url_for, flash
 from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
 from app.vacation import vacation_bp
-from app.models import User, Vacation
+from app.models import User, Vacation, MonthLock
 from app import db
 from app.models import now_kst
 
@@ -22,6 +22,22 @@ DEDUCTION_MAP = {
     "토연차": 0.75,
 }
 
+# =======================================================
+# ✅ 공용: 월 확정(잠금) 체크
+# - 잠금된 달이면 "총관리자만" 수정/삭제 가능
+# =======================================================
+def _is_month_locked(dept: str, y: int, m: int) -> bool:
+    lk = MonthLock.query.filter_by(department=dept, year=y, month=m).first()
+    return bool(lk and lk.locked)
+
+def _block_if_locked(dept: str, dt: date):
+    # ✅ 잠금된 달은 총관리자만 변경 가능
+    if _is_month_locked(dept, dt.year, dt.month) and (not current_user.is_superadmin):
+        return jsonify({
+            "status": "error",
+            "message": "확정된 달입니다. 총관리자만 수정/삭제할 수 있습니다."
+        }), 403
+    return None
 
 # =======================================================
 # 휴가 추가 (연차, 반차, 토연차, 탄력근무 포함)
@@ -48,9 +64,18 @@ def add_event():
         try:
             start_date = datetime.strptime(start, "%Y-%m-%d").date()
             end_date = datetime.strptime(end, "%Y-%m-%d").date()
+        
         except Exception:
             return jsonify({"status": "error", "message": "날짜 형식 오류"}), 400
+        
+        blocked = _block_if_locked(user_dept, start_date)
+        if blocked:
+            return blocked
 
+        blocked = _block_if_locked(user_dept, end_date)
+        if blocked:
+            return blocked
+        
         weekday = start_date.weekday()  # 월=0 ~ 일=6
 
         # =======================================================
@@ -203,6 +228,9 @@ def approve_event(event_id):
         return jsonify({"status": "error", "message": "승인 권한이 없습니다."})
 
     event = Vacation.query.get_or_404(event_id)
+    blocked = _block_if_locked(event.department, event.start_date)
+    if blocked:
+        return blocked
     event.approved = True
     db.session.commit()
 
@@ -216,6 +244,9 @@ def approve_event(event_id):
 @login_required
 def delete_event(event_id):
     event = Vacation.query.get_or_404(event_id)
+    blocked = _block_if_locked(event.department, event.start_date)
+    if blocked:
+        return blocked
 
     # 🔹 이 일정이 "나"의 일정인지 user_id 기준으로 확인
     is_mine = (event.user_id == current_user.id)
@@ -284,6 +315,9 @@ def approve_vacation(vac_id):
     vac = Vacation.query.get(vac_id)
     if not vac:
         return jsonify({"status": "error", "message": "휴가를 찾을 수 없습니다."}), 404
+    blocked = _block_if_locked(vac.department, vac.start_date)
+    if blocked:
+        return blocked
 
     vac.approved = True
     db.session.commit()
@@ -322,6 +356,10 @@ def add_flex_event():
     target_user = User.query.filter_by(first_name=target_name).first()
     if not target_user:
         return jsonify({"status": "error", "message": "직원 정보 없음"}), 400
+    
+    blocked = _block_if_locked(target_user.department, date_obj)
+    if blocked:
+        return blocked
 
     flex_event = Vacation(
         user_id=target_user.id,               # 🔥 반드시 저장

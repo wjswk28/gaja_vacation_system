@@ -376,6 +376,10 @@ const isAdmin = ("{{ 'true' if current_user.is_admin or current_user.department.
 const currentUserName = "{{ current_user.first_name or current_user.name or current_user.username }}";
 console.log("✅ isAdmin =", isAdmin, " / dept =", currentDept);
 
+window.__isSuperadmin = ("{{ 'true' if current_user.is_superadmin else 'false' }}" === "true");
+window.__monthLocked = false;      // 현재 보고 있는 달 “확정(잠금)” 여부
+window.__canConfirmMonth = false;  // 1~5일 기간 여부(확정 버튼 활성 조건)
+
 let selectedDate = null;
 let selectedType = null;
 let selectedWorkers = []; // 여러 근무자 선택용
@@ -417,6 +421,66 @@ document.addEventListener("DOMContentLoaded", async function () {
 
   // ✅ 전역 변수 (함수 밖에서 선언해야 함)
   let showMyOnly = false;
+
+  // ✅ 확정 버튼 상태 업데이트 (1~5일만 + 이미 확정이면 비활성)
+  async function updateConfirmButtonState() {
+    const viewDate = calendar.getDate();
+    const viewY = viewDate.getFullYear();
+    const viewM = viewDate.getMonth() + 1;
+
+    try {
+      const res = await axios.get("{{ url_for('calendar.month_lock_status') }}", {
+        params: { dept: currentDept, year: viewY, month: viewM }
+      });
+
+      // ✅ 서버 판단 그대로 사용
+      window.__monthLocked = !!res.data.locked;
+      window.__canConfirmMonth = !!res.data.can_confirm;
+
+      // 디버그(필요하면 유지)
+      console.log("[month_lock_status]", { viewY, viewM, ...res.data });
+
+    } catch (e) {
+      console.error("month_lock_status error:", e);
+      window.__monthLocked = false;
+      window.__canConfirmMonth = false;
+    }
+
+    const btn = document.querySelector(".fc-confirmMonth-button");
+    if (!btn) return;
+
+    // ✅ 텍스트는 항상 "확정" 유지
+    btn.textContent = "확정";
+
+    // 상태값
+    const isLocked = !!window.__monthLocked;                 // 확정됨(잠김)
+    const isReady  = !isLocked && !!isAdmin && !!window.__canConfirmMonth;  // 확정 가능(활성)
+
+    // ✅ 상태 클래스 (CSS가 색을 담당)
+    btn.classList.toggle("is-confirmed", isLocked); // 초록
+    btn.classList.toggle("is-ready", isReady);      // 노랑
+
+    // ✅ 활성/비활성
+    btn.disabled = !isReady;
+
+    // ✅ 확정 해제 버튼(총관리자 전용)
+    const unlockBtn = document.querySelector(".fc-unlockMonth-button");
+    if (unlockBtn) {
+      const isSuper = window.__isSuperadmin === true;
+
+      const isLocked = !!window.__monthLocked;
+
+      // ✅ 총관리자 + 잠김일 때만 보이게
+      const showUnlock = isSuper && isLocked;
+
+      unlockBtn.style.display = showUnlock ? "" : "none";
+      unlockBtn.disabled = !showUnlock;
+
+      // ✅ 상태 클래스(색은 CSS에서)
+      unlockBtn.classList.toggle("is-enabled", showUnlock);
+    } 
+  }
+
 
   // ✅ FullCalendar 초기화
   const calendar = new FullCalendar.Calendar(calendarEl, {
@@ -503,14 +567,93 @@ document.addEventListener("DOMContentLoaded", async function () {
     },
 
 
-    headerToolbar: { left: "", center: "title", right: "" },
-    footerToolbar: {
-      left: "prev,next today",
-      center: "",
-      right: "dayGridMonth,listWeek",
+    // ✅ 상단(년월 타이틀 옆) 확정 버튼
+    customButtons: {
+      confirmMonth: {
+        text: "확정",
+        click: async function () {
+          // 버튼 상태는 아래 updateConfirmButtonState()에서 관리
+          if (!window.__canConfirmMonth) {
+            showToast("확정 가능한 기간이 아니거나 이미 확정되었습니다.", "error");
+            return;
+          }
+          if (!isAdmin) {
+            showToast("관리자만 확정할 수 있습니다.", "error");
+            return;
+          }
+
+          const d = calendar.getDate();
+          const y = d.getFullYear();
+          const m = d.getMonth() + 1;
+
+          try {
+            const res = await axios.post("{{ url_for('calendar.month_lock_confirm') }}", {
+              dept: currentDept,
+              year: y,
+              month: m
+            });
+
+            showToast(res.data.message || "확정 완료");
+            await updateConfirmButtonState();     // 버튼/상태 갱신
+            calendar.refetchEvents();             // 필요시 새로고침
+          } catch (err) {
+            const msg = (err.response?.data?.message) || "확정 실패";
+            showToast(msg, "error");
+            await updateConfirmButtonState();
+          }
+        }
+      },
+      // ✅ 추가: 확정 해제(총관리자만)
+      unlockMonth: {
+        text: "확정 해제",
+        click: async function () {
+          const isSuper = window.__isSuperadmin === true;
+          if (!isSuper) {
+            showToast("총관리자만 확정 해제할 수 있습니다.", "error");
+            return;
+          }
+          if (!window.__monthLocked) {
+            showToast("확정된 달이 아닙니다.", "error");
+            return;
+          }
+
+          if (!confirm("정말 이 달의 확정을 해제할까요? (수정/삭제가 다시 가능해집니다)")) return;
+
+          const d = calendar.getDate();
+          const y = d.getFullYear();
+          const m = d.getMonth() + 1;
+
+          try {
+            const res = await axios.post("{{ url_for('calendar.month_lock_unlock') }}", {
+              dept: currentDept, year: y, month: m
+            });
+
+            showToast(res.data.message || "확정 해제 완료");
+            await updateConfirmButtonState();
+            calendar.refetchEvents();
+          } catch (err) {
+            showToast((err.response?.data?.message) || "확정 해제 실패", "error");
+            await updateConfirmButtonState();
+          }
+        }
+      }
     },
+
+    headerToolbar: { left: "", center: "title", right: "" },
+
+    footerToolbar: {
+      left: "prev,today,next",
+      center: "",
+      // ✅ 월/목록/확정(붙은 그룹) + 확정해제(별도 버튼) 를 오른쪽에 배치
+      right: "dayGridMonth,listWeek,confirmMonth unlockMonth",
+    },
+
     buttonText: { today: "오늘", month: "월", week: "주", list: "목록" },
 
+    // ✅ 달이 바뀔 때마다 확정 버튼 상태 갱신
+    datesSet: async function () {
+      await updateConfirmButtonState();
+    },
 
     // ✅ 전체 일정 / 내 일정 전환 반영
     events: function (fetchInfo, successCallback, failureCallback) {
@@ -612,6 +755,12 @@ document.addEventListener("DOMContentLoaded", async function () {
 
       const day = info.date.getDay(); // 0: 일, 6: 토
       selectedDate = info.dateStr;
+
+      // ✅ 확정(잠금)된 달이면 (총관리자 제외) 추가/변경 불가
+      if (window.__monthLocked && !isSuperadmin) {
+        showToast("이 달은 확정되어 휴가/근무를 추가하거나 변경할 수 없습니다.", "error");
+        return;
+      }
 
       const currentDept = "{{ dept }}".trim();
 
@@ -756,6 +905,14 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         // 이 일정이 '내 것'인지 여부
         const isMine = (nameFromTitle === currentUserName);
+
+        // ✅ 확정(잠금)된 달이면 (총관리자 제외) 승인/삭제/취소/수정 진입 금지
+        const isSuperadmin = ("{{ 'true' if current_user.is_superadmin else 'false' }}" === "true");
+
+        if (window.__monthLocked && !isSuperadmin) {
+            showToast("이 달은 확정되어 수정/삭제/승인을 할 수 없습니다.", "error");
+            return;
+        }
 
         // -----------------------------
         // 🔥 승인 대상 휴가 종류만 승인 모달 가능
@@ -952,6 +1109,9 @@ document.addEventListener("DOMContentLoaded", async function () {
   // ✅ 공휴일 데이터가 준비된 상태에서 한 번만 렌더
   calendar.render();
 
+  // ✅ 최초 1회 확정 버튼 상태 세팅
+  await updateConfirmButtonState();
+
   // ⭐ 근무표 출력 버튼 - 단일 이벤트만 등록
   document.getElementById("exportExcelBtn")?.addEventListener("click", () => {
       const dept = "{{ dept }}".trim();
@@ -1081,6 +1241,11 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     // ✅ 관리자 등록 버튼 (단일 정의!)
     saveAdminEvent.addEventListener("click", async () => {
+
+        if (window.__monthLocked && !window.__isSuperadmin) {
+          showToast("이 달은 확정되어 추가/변경할 수 없습니다.", "error");
+          return;
+        }
         const hours = document.getElementById("flexHours").value;
         const target_name = document.getElementById("flexUser").value;
 
@@ -1201,6 +1366,11 @@ document.addEventListener("DOMContentLoaded", async function () {
   // ✅ 등록 버튼 클릭 시 실제 저장
   if (confirmAddBtn) {
     confirmAddBtn.addEventListener("click", async () => {
+
+        if (window.__monthLocked && !window.__isSuperadmin) {
+          showToast("이 달은 확정되어 휴가를 추가/변경할 수 없습니다.", "error");
+          return;
+        }
 
         if (!selectedDate || !selectedType) {
             showToast("날짜와 휴가 종류를 선택해주세요.", "error");
@@ -1393,10 +1563,76 @@ function openAdminModal(dateStr) {
 </script>
 
 <style>
+    /* ===========================
+   ✅ "확정/확정됨" 버튼 스타일 개선
+   - 더 작게, 둥글게(pill), 투박함 제거
+   =========================== */
+
+    /* 버튼 그룹(FullCalendar 기본) 영향 줄이기 */
+    .fc .fc-button-group {
+      background: transparent !important;
+      border: 0 !important;
+      box-shadow: none !important;
+    }
+
+    /* confirmMonth 버튼 자체 */
+    .fc .fc-confirmMonth-button.fc-button {
+      border-radius: 0.375rem !important;   /* ✅ pill 제거 (rounded-md 느낌) */
+      height: auto !important;
+      min-height: unset !important;
+
+      /* 다른 fc 버튼과 비슷하게 */
+      padding: 3px 8px !important;
+      font-size: 1rem !important;
+      line-height: 1.2 !important;
+
+      box-shadow: none !important;
+    }
+
+    /* hover 시 살짝 떠보이게 */
+    .fc .fc-confirmMonth-button.fc-button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(15,23,42,.14) !important;
+    }
+
+    /* 눌렀을 때 */
+    .fc .fc-confirmMonth-button.fc-button:active:not(:disabled) {
+      transform: translateY(0px);
+      box-shadow: 0 1px 2px rgba(15,23,42,.10) !important;
+    }
+
+    /* 비활성(확정 불가/확정됨 포함)일 때 더 “세련된” 톤으로 */
+    .fc .fc-confirmMonth-button.fc-button:disabled {
+      opacity: 1 !important;               /* (JS에서 opacity-50 붙어도) 더 깔끔하게 */
+      filter: saturate(0.55);
+      box-shadow: none !important;
+    }
         /* 헤더 위, 푸터 바로 위로 끌어올리기 */
     .fc .fc-header-toolbar {
         order: 0;
     }
+    /* ✅ 타이틀("2025년 12월") + 확정 버튼을 같은 줄로 강제 */
+    .fc .fc-header-toolbar .fc-toolbar-chunk{
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 10px !important;
+      flex-wrap: nowrap !important;
+    }
+
+    /* h2 기본 margin 때문에 줄바꿈처럼 보이는 것 제거 */
+    .fc .fc-header-toolbar .fc-toolbar-title{
+      margin: 0 !important;
+      padding: 0 !important;
+      white-space: nowrap !important;
+    }
+
+    /* 확정 버튼 그룹도 옆에 붙게 */
+    .fc .fc-header-toolbar .fc-button-group{
+      margin: 0 !important;
+      white-space: nowrap !important;
+    }
+
     .fc .fc-footer-toolbar {
         margin-top: -0.4rem !important;
         padding-top: 0 !important;
@@ -1566,6 +1802,100 @@ function openAdminModal(dateStr) {
         margin-top: 0 !important;       /* 이벤트 영역 위쪽 여백 제거(재확인) */
         padding-top: 0 !important;
     }
+
+    /* ✅ 오른쪽 버튼 그룹(월/목록/확정) 완전 붙이기 */
+    .fc .fc-toolbar .fc-button-group {
+      display: inline-flex !important;
+      gap: 0 !important;
+    }
+
+    .fc .fc-toolbar .fc-button-group > .fc-button {
+      margin: 0 !important;                 /* 버튼 사이 간격 제거 */
+      border-radius: 0 !important;          /* 가운데 버튼 둥글기 제거 */
+      border-right: 0 !important;           /* 경계선 겹침 제거 */
+      box-shadow: none !important;
+      padding: 6px 12px !important;
+      font-weight: 700 !important;
+    }
+
+    /* ✅ 양 끝만 둥글게 (붙은 세그먼트 느낌) */
+    .fc .fc-toolbar .fc-button-group > .fc-button:first-child {
+      border-top-left-radius: 10px !important;
+      border-bottom-left-radius: 10px !important;
+    }
+
+    .fc .fc-toolbar .fc-button-group > .fc-button:last-child {
+      border-top-right-radius: 10px !important;
+      border-bottom-right-radius: 10px !important;
+      border-right: 1px solid rgba(15, 23, 42, 0.2) !important; /* 마지막만 경계선 */
+    }
+
+    /* ✅ 기본(비활성) 버튼 톤: 진한 네이비 */
+    .fc .fc-toolbar .fc-button-group > .fc-button {
+      background: #243447 !important;  /* slate/navy */
+      border: 1px solid rgba(15, 23, 42, 0.2) !important;
+      color: #fff !important;
+    }
+
+    /* ✅ 월/목록: 선택된 버튼만 더 강조 (FullCalendar가 fc-button-active 부여) */
+    .fc .fc-toolbar .fc-button-group > .fc-button.fc-button-active {
+      background: #0ea5e9 !important;  /* sky-500 */
+      border-color: #0284c7 !important; /* sky-600 */
+      color: #fff !important;
+    }
+
+    /* ✅ 확정됨이면 클릭 못하게 할 경우(선택): 비활성 스타일 */
+    .fc .fc-confirmMonth-button.is-confirmed:disabled {
+      opacity: 0.95 !important;
+      cursor: default !important;
+    }
+    /* ✅ 버튼 그룹 기본(월/목록/확정): 네이비 */
+    .fc .fc-toolbar .fc-button-group > .fc-button {
+      background: #243447 !important;
+      border: 1px solid rgba(15, 23, 42, 0.2) !important;
+      color: #fff !important;
+    }
+
+    /* ✅ 선택된 뷰(월/목록) 강조 */
+    .fc .fc-toolbar .fc-button-group > .fc-button.fc-button-active {
+      background: #0ea5e9 !important;
+      border-color: #0284c7 !important;
+    }
+
+    /* ✅ 비활성(disabled)이어도 기본 네이비 톤 유지 */
+    .fc .fc-toolbar .fc-button-group > .fc-button:disabled {
+      opacity: 1 !important;
+      cursor: not-allowed !important;
+      filter: none !important;
+    }
+
+    /* ✅ 확정 버튼: "활성화(확정 가능)"일 때만 노랑 */
+    .fc .fc-toolbar .fc-button-group > .fc-confirmMonth-button.is-ready {
+      background: #f59e0b !important;   /* amber */
+      border-color: #d97706 !important;
+    }
+
+    /* ✅ 확정 버튼: "확정됨(잠김)"일 때 초록 */
+    .fc .fc-toolbar .fc-button-group > .fc-confirmMonth-button.is-confirmed {
+      background: #16a34a !important;   /* green */
+      border-color: #15803d !important;
+      cursor: default !important;
+    }
+    /* ✅ 확정 해제 버튼: 세그먼트와 분리된 danger 버튼 */
+    .fc .fc-unlockMonth-button {
+      margin-left: 10px !important;         /* 오른쪽 세그먼트와 간격 */
+      background: #fff !important;
+      color: #ef4444 !important;            /* red-500 */
+      border: 1px solid #ef4444 !important;
+      border-radius: 10px !important;
+      font-weight: 800 !important;
+      box-shadow: none !important;
+    }
+
+    .fc .fc-unlockMonth-button:hover {
+      filter: brightness(0.98) !important;
+    }
+
 
 /* 📱 모바일 전용: 월 제목 + 네비 버튼 크기 줄이기 */
 @media (max-width: 768px) {

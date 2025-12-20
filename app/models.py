@@ -1,5 +1,6 @@
 from datetime import datetime, date, timedelta
 from flask_login import UserMixin
+from datetime import datetime
 from app import db, login_manager
 
 # =====================
@@ -26,6 +27,8 @@ class User(UserMixin, db.Model):
     is_admin = db.Column(db.Boolean, default=False)
     is_superadmin = db.Column(db.Boolean, default=False)
     alt_leave = db.Column(db.Float, default=0)    # 부여된 대체연차 일수
+    signature_image = db.Column(db.String(255), nullable=True)   #서명 파일
+    
     
     @property
     def total_alt_leave(self):
@@ -78,6 +81,21 @@ class AltLeaveLog(db.Model):
     granted_by = db.Column(db.String(50), nullable=False)          # 부여자 이름
     department_summary = db.Column(db.String(500), nullable=True)  # 부서 + 부서원 요약 문자열
 
+class MonthLock(db.Model):
+    __tablename__ = "month_locks"
+
+    id = db.Column(db.Integer, primary_key=True)
+    department = db.Column(db.String(50), nullable=False, index=True)
+    year = db.Column(db.Integer, nullable=False, index=True)
+    month = db.Column(db.Integer, nullable=False, index=True)
+
+    locked = db.Column(db.Boolean, default=False, nullable=False)
+    locked_at = db.Column(db.DateTime, nullable=True)
+    locked_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("department", "year", "month", name="uq_month_lock"),
+    )
 
 # =====================
 # 로그인 user loader
