@@ -67,7 +67,9 @@ def employee_list():
             "상담실",
             "영양",
         ]
-
+        
+        dept_order = {d: i for i, d in enumerate(base_departments)}
+        
         # 2) DB에 실제 존재하는 부서들 (None, '관리자' 제외)
         db_departments = (
             db.session.query(User.department)
@@ -78,7 +80,10 @@ def employee_list():
         db_dept_list = [row[0] for row in db_departments]
 
         # 3) 기본 부서 + DB 부서 합쳐서 중복 제거 후 정렬
-        departments = sorted(set(base_departments + db_dept_list))
+        # ✅ base_departments 순서 유지 + 추가 부서는 뒤에 가나다
+        base_set = set(base_departments)
+        extra_depts = sorted([d for d in db_dept_list if d and d not in base_set])
+        departments = base_departments + extra_depts
 
         # 4) 현재 선택된 부서 (URL 파라미터가 없으면 "전체" 기본값)
         current_dept = request.args.get("dept", "all").strip()
@@ -179,6 +184,7 @@ def employee_list():
         # -------------------------
         output.append({
             "id": emp.id,
+            "department": emp.department,   # ✅ 추가
             "name": emp.name or emp.username,
             "username": emp.username,
             "join_date": emp.join_date,
@@ -201,14 +207,21 @@ def employee_list():
 
     if sort == "name":
         output.sort(key=lambda x: hangul_sort_key(x.get("name")))
+
     elif sort == "join_date":
-        # ✅ 입사일 빠른 순 (None은 맨 뒤)
         from datetime import date
         def join_key(x):
             jd = x.get("join_date")
             return jd if jd else date.max
         output.sort(key=join_key)
 
+    else:
+        # ✅ 정렬 파라미터가 없을 때만 기본 정렬
+        if user.is_superadmin and current_dept == "all":
+            output.sort(key=lambda x: (
+                dept_order.get(x.get("department"), 9999),
+                hangul_sort_key(x.get("name"))
+            ))
 
     return render_template(
         "employee_list.html",
