@@ -167,6 +167,9 @@ def employee_list():
             "is_admin": emp.is_admin,
 
             # ✅ 추가
+            "phone": emp.phone,
+
+            # ✅ 추가
             "signature_image": emp.signature_image,
         })
 
@@ -224,6 +227,7 @@ def employee_register():
         birthday   = request.form.get("birthday", "").strip()
         address    = request.form.get("address", "").strip()
         password   = request.form.get("password", "").strip()
+        phone      = request.form.get("phone", "").strip()
 
         # 🔹 부서 미선택 방지
         if not department:
@@ -247,6 +251,7 @@ def employee_register():
             join_date=join_date,
             birthday=birthday,
             address=address,
+            phone=phone,  # ✅ 추가
             remaining_days=15,
             is_admin=False,
             is_superadmin=False,
@@ -306,55 +311,6 @@ def employee_register():
         is_admin=user.is_admin,
     )
 
-
-    # =========================
-    # GET: 폼 화면 렌더링 (여기가 중요!)
-    # =========================
-
-    # 🔹 총관리자면 = 드롭다운에 쓸 부서 목록 준비
-    if user.is_superadmin:
-        # 기본 부서 리스트
-        base_departments = [
-            "수술실",
-            "물리치료",
-            "도수",
-            "외래",
-            "영상의학과",
-            "원무과",
-            "병동",
-            "총무과",
-            "심사과",
-            "홍보",
-            "진단검사",
-            "상담실",
-            "영양",
-        ]
-
-        # DB에 실제 존재하는 부서들(관리자 제외)
-        db_departments = (
-            db.session.query(User.department)
-            .distinct()
-            .filter(User.department.isnot(None), User.department != "관리자")
-            .all()
-        )
-        db_dept_list = [d[0] for d in db_departments]
-
-        dept_list = sorted(set(base_departments + db_dept_list))
-        current_dept = None  # 템플릿에서 사용 X, 그냥 형태 맞추기용
-    else:
-        # 일반 관리자 → 자신의 부서만 고정
-        dept_list = []
-        current_dept = user.department
-
-    return render_template(
-        "employee_register.html",
-        dept_list=dept_list,
-        current_dept=current_dept,
-        is_superadmin=user.is_superadmin,
-        is_admin=user.is_admin,
-    )
-
-
 # =====================================
 # 직원 수정
 # =====================================
@@ -408,6 +364,8 @@ def edit_employee(emp_id):
         emp.join_date  = request.form.get("join_date") or None
         emp.birthday   = request.form.get("birthday") or None
         emp.address    = request.form.get("address", "").strip()
+        emp.phone      = request.form.get("phone", "").strip()
+
 
         # 비밀번호 수정 필드가 있으면 반영 (없으면 그냥 무시돼도 상관 없음)
         password = request.form.get("password")
