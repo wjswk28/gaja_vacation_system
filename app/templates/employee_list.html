@@ -46,12 +46,37 @@
     <table class="min-w-full text-sm border-collapse">
         <thead class="bg-gradient-to-r from-sky-50 to-sky-100 text-sky-700 border-b border-sky-200">
           <tr>
-            <th class="py-2 px-2 border-r border-sky-200">이름</th>
+            <th class="py-2 px-2 border-r border-sky-200">
+              {% if sort == 'name' %}
+                <!-- 다시 누르면 원래대로 -->
+                <a href="{{ url_for('employee.employee_list', dept=current_dept) }}"
+                  class="inline-flex items-center gap-1 hover:text-sky-700">
+                  이름
+                </a>
+              {% else %}
+                <a href="{{ url_for('employee.employee_list', dept=current_dept, sort='name') }}"
+                  class="inline-flex items-center gap-1 hover:text-sky-700">
+                  이름
+                </a>
+              {% endif %}
+            </th>
             <th class="py-2 px-2 border-r border-sky-200">아이디</th>
             {% if is_superadmin %}
               <th class="py-2 px-2 border-r border-sky-200">전화번호</th>
             {% endif %}
-            <th class="py-2 px-2 border-r border-sky-200">입사일</th>
+            <th class="py-2 px-2 border-r border-sky-200">
+              {% if sort == 'join_date' %}
+                <a href="{{ url_for('employee.employee_list', dept=current_dept) }}"
+                  class="inline-flex items-center gap-1 hover:text-sky-700">
+                  입사일
+                </a>
+              {% else %}
+                <a href="{{ url_for('employee.employee_list', dept=current_dept, sort='join_date') }}"
+                  class="inline-flex items-center gap-1 hover:text-sky-700">
+                  입사일
+                </a>
+              {% endif %}
+            </th>
             <th class="py-2 px-2 border-r border-sky-200">총 연차</th>
             {% if is_superadmin %}
               <th class="py-2 px-2 border-r border-sky-200">대체연차</th>
