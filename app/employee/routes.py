@@ -216,10 +216,22 @@ def employee_list():
         output.sort(key=join_key)
 
     else:
-        # ✅ 정렬 파라미터가 없을 때만 기본 정렬
+        # ✅ 정렬 파라미터가 없을 때만 기본 정렬 (전체 보기)
         if user.is_superadmin and current_dept == "all":
+            from datetime import date, datetime
+
+            def join_key(v):
+                jd = v.get("join_date")
+                if jd is None:
+                    return date.max
+                if isinstance(jd, datetime):
+                    return jd.date()
+                return jd  # Date 타입이면 그대로 OK
+
+            # ✅ 부서(지정 순서) → 입사일(빠른순) → 이름(가나다)
             output.sort(key=lambda x: (
                 dept_order.get(x.get("department"), 9999),
+                join_key(x),
                 hangul_sort_key(x.get("name"))
             ))
 
