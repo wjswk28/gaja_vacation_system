@@ -15,7 +15,7 @@ from datetime import datetime, date
 from app.employee import employee_bp
 from app.models import User, Vacation
 from app import db
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 import os
 from werkzeug.utils import secure_filename
 import uuid
@@ -59,16 +59,20 @@ def employee_list():
         # 3) 기본 부서 + DB 부서 합쳐서 중복 제거 후 정렬
         departments = sorted(set(base_departments + db_dept_list))
 
-        # 4) 현재 선택된 부서 (URL 파라미터가 없으면 첫 번째 부서를 기본값으로)
-        current_dept = request.args.get("dept", "").strip()
+        # 4) 현재 선택된 부서 (URL 파라미터가 없으면 "전체" 기본값)
+        current_dept = request.args.get("dept", "all").strip()
         if not current_dept:
-            current_dept = departments[0] if departments else ""
+            current_dept = "all"
 
         # 5) 선택된 부서의 직원 목록
-        if current_dept:
-            employees_raw = User.query.filter_by(department=current_dept).all()
+        if current_dept == "all":
+            employees_raw = User.query.filter(
+                User.department.isnot(None),
+                User.department != "관리자"
+            ).all()
         else:
-            employees_raw = []
+            employees_raw = User.query.filter_by(department=current_dept).all() if current_dept else []
+
 
     # 🔹 일반 관리자 / 일반 사용자 → 자기 부서만
     else:
