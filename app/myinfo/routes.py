@@ -27,11 +27,14 @@ def myinfo():
     if request.method == "POST":
         new_address = (request.form.get("address") or "").strip()
         new_password = (request.form.get("password") or "").strip()
+        new_phone = (request.form.get("phone") or "").strip()
 
         if new_address:
             user.address = new_address
         if new_password:
             user.password = new_password  # 운영 시 해시 추천
+        if new_phone:
+            user.phone = new_phone
 
         user_name = user.name or user.username
         flash(f"{user_name}님의 정보가 수정되었습니다.", "success")
@@ -122,6 +125,7 @@ def myinfo():
         "name": full_name,
         "birth": user.birthday,
         "address": user.address,
+        "phone": user.phone,  # ✅ 추가
         "join_date": user.join_date,
         "dday": dday,
         "total_leave": total_leave,
