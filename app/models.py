@@ -24,6 +24,9 @@ class User(UserMixin, db.Model):
     birthday = db.Column(db.String(20))
     address = db.Column(db.String(100))           # 주소
 
+    # ✅ NEW: 전화번호
+    phone = db.Column(db.String(20), nullable=True)  # 예: 010-1234-5678
+
     is_admin = db.Column(db.Boolean, default=False)
     is_superadmin = db.Column(db.Boolean, default=False)
     alt_leave = db.Column(db.Float, default=0)    # 부여된 대체연차 일수
