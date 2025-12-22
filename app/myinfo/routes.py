@@ -11,7 +11,6 @@ from app.myinfo import myinfo_bp
 from app.models import User, Vacation, AltLeaveLog
 from app.leave_utils import calculate_annual_leave
 
-
 # ====================================================
 # 내 정보 페이지
 # ====================================================
