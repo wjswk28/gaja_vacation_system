@@ -14,6 +14,7 @@
       "아이디": user.id,
       "이름": user.name,
       "생일": user.birth or "-",
+      "전화번호": user.phone or "-",
       "입사일": user.join_date or "-",
       "입사 후": user.dday ~ "일",
       "총 발생 연차": user.total_leave ~ "일",
@@ -53,20 +54,31 @@
   
   <!-- 정보 카드 -->
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    <!-- 주소 -->
-    <div class="flex flex-col bg-gradient-to-br from-sky-50 to-white border border-sky-100 rounded-xl shadow-sm px-5 py-4">
-      <label class="text-slate-500 text-xs font-medium mb-1">주소</label>
-      <input type="text" name="address" value="{{ user.address or '' }}"
-             class="border border-sky-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-400 focus:outline-none transition w-full text-left">
-    </div>
 
-    <!-- 비밀번호 -->
+    <!-- 비밀번호 변경 | 전화번호 변경 -->
     <div class="flex flex-col bg-gradient-to-br from-sky-50 to-white border border-sky-100 rounded-xl shadow-sm px-5 py-4">
       <label class="text-slate-500 text-xs font-medium mb-1">비밀번호 변경</label>
       <input type="password" name="password" placeholder="새 비밀번호 입력"
-             class="border border-sky-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-400 focus:outline-none transition w-full text-left">
+            class="border border-sky-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-400 focus:outline-none transition w-full text-left">
     </div>
+
+    <div class="flex flex-col bg-gradient-to-br from-sky-50 to-white border border-sky-100 rounded-xl shadow-sm px-5 py-4">
+      <label class="text-slate-500 text-xs font-medium mb-1">전화번호 변경</label>
+      <input type="text" name="phone" value="{{ user.phone or '' }}"
+            placeholder="예: 010-1234-5678"
+            inputmode="tel" autocomplete="tel"
+            class="border border-sky-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-400 focus:outline-none transition w-full text-left">
+    </div>
+
+    <!-- 주소 변경 (전체 폭) -->
+    <div class="md:col-span-2 flex flex-col bg-gradient-to-br from-sky-50 to-white border border-sky-100 rounded-xl shadow-sm px-5 py-4">
+      <label class="text-slate-500 text-xs font-medium mb-1">주소 변경</label>
+      <input type="text" name="address" value="{{ user.address or '' }}"
+            class="border border-sky-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-400 focus:outline-none transition w-full text-left">
+    </div>
+
   </div>
+
 
   <!-- 저장 버튼 -->
   <div class="text-center mt-8">
