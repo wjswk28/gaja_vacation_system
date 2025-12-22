@@ -20,6 +20,27 @@ import os
 from werkzeug.utils import secure_filename
 import uuid
 
+# ✅ 한글(가나다) 정렬용 키
+def hangul_sort_key(text: str):
+    text = (text or "").strip()
+
+    def char_key(ch: str):
+        code = ord(ch)
+        # 한글 음절(가~힣)
+        if 0xAC00 <= code <= 0xD7A3:
+            s = code - 0xAC00
+            cho = s // 588
+            jung = (s % 588) // 28
+            jong = s % 28
+            return (0, cho, jung, jong)
+        # 영문/숫자
+        if ch.isalnum():
+            return (1, ch.lower())
+        # 기타 문자
+        return (2, code)
+
+    return [char_key(ch) for ch in text]
+
 # =====================================
 # 직원 목록
 # =====================================
@@ -176,6 +197,17 @@ def employee_list():
             "signature_image": emp.signature_image,
         })
 
+    sort = request.args.get("sort", "").strip()  # "", "name", "join_date"
+
+    if sort == "name":
+        output.sort(key=lambda x: hangul_sort_key(x.get("name")))
+    elif sort == "join_date":
+        # ✅ 입사일 빠른 순 (None은 맨 뒤)
+        from datetime import date
+        def join_key(x):
+            jd = x.get("join_date")
+            return jd if jd else date.max
+        output.sort(key=join_key)
 
 
     return render_template(
@@ -184,6 +216,7 @@ def employee_list():
         current_dept=current_dept,
         departments=departments,
         is_superadmin=user.is_superadmin,
+        sort=sort,  # ✅ 추가
     )
 
 # =======================
