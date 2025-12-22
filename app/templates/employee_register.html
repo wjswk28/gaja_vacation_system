@@ -9,98 +9,108 @@
   </div>
 
   <form method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-5">
-    
-    <!-- ✅ 부서 + 아이디 : 같은 줄 2컬럼, 정렬 맞추기 -->
-    <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5">
-      
-      <!-- 왼쪽: 부서 -->
-      {% if is_superadmin %}
-      <div>
-        <label class="block text-sm font-medium text-slate-600 mb-1">부서</label>
-        <div class="relative">
-          <select name="department" required
-                  class="appearance-none w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 pr-8 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition">
-            <option value="">-- 부서를 선택하세요 --</option>
-            {% for d in dept_list %}
-              <option value="{{ d }}">{{ d }}</option>
-            {% endfor %}
-          </select>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2"
-               class="absolute right-2.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-sky-500 pointer-events-none">
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </div>
-      </div>
-      {% else %}
-      <div>
-        <label class="block text-sm font-medium text-slate-600 mb-1">부서</label>
-        <input type="text" value="{{ current_dept }}" disabled
-               class="w-full border border-sky-100 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-600 shadow-inner">
-        <input type="hidden" name="department" value="{{ current_dept }}">
-      </div>
-      {% endif %}
-
-      <!-- 오른쪽: 아이디 -->
-      <div>
-        <label class="block text-sm font-medium text-slate-600 mb-1">아이디</label>
-        <input type="text" name="username" id="usernameInput"
-               autocomplete="off"
-               class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition" required>
-        <p id="usernameMsg" class="text-xs mt-1 text-slate-500"></p>
-      </div>
-
+    <!-- ✅ 1줄: 아이디 | 비밀번호 -->
+    <div>
+      <label class="block text-sm font-medium text-slate-600 mb-1">아이디</label>
+      <input type="text" name="username" id="usernameInput"
+            autocomplete="off"
+            class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition"
+            required>
+      <p id="usernameMsg" class="text-xs mt-1 text-slate-500"></p>
     </div>
 
-    <!-- ✅ 비밀번호 -->
-    <div class="md:col-span-2">
+    <div>
       <label class="block text-sm font-medium text-slate-600 mb-1">비밀번호</label>
       <input type="password" name="password"
-             class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition" required>
+            class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition"
+            required>
     </div>
 
-    <!-- ✅ 성 / 이름 -->
+    <!-- ✅ 2줄: 성 | 이름 -->
     <div>
       <label class="block text-sm font-medium text-slate-600 mb-1">성</label>
       <input type="text" name="last_name"
-             class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition" required>
+            class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition"
+            required>
     </div>
+
     <div>
       <label class="block text-sm font-medium text-slate-600 mb-1">이름</label>
       <input type="text" name="first_name"
-             class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition" required>
+            class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition"
+            required>
     </div>
 
-    <!-- ✅ 입사일 + 생일 -->
+    <!-- ✅ 3줄: 전화번호 | 생일 -->
     <div>
-      <label class="block text-sm font-medium text-slate-600 mb-1">입사일</label>
-      <input type="date" name="join_date"
-             class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition" required>
+      <label class="block text-sm font-medium text-slate-600 mb-1">전화번호</label>
+      <input type="text" name="phone"
+            placeholder="예: 010-1234-5678"
+            inputmode="tel"
+            autocomplete="tel"
+            class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition">
     </div>
+
     <div>
       <label class="block text-sm font-medium text-slate-600 mb-1">생일</label>
       <input type="date" name="birthday"
-             class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition">
+            class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition">
     </div>
 
-    <!-- ✅ 주소 -->
+    <!-- ✅ 4줄: 부서 | 입사일 -->
+    {% if is_superadmin %}
+    <div>
+      <label class="block text-sm font-medium text-slate-600 mb-1">부서</label>
+      <div class="relative">
+        <select name="department" required
+                class="appearance-none w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 pr-8 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition">
+          <option value="">-- 부서를 선택하세요 --</option>
+          {% for d in dept_list %}
+            <option value="{{ d }}">{{ d }}</option>
+          {% endfor %}
+        </select>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="2"
+            class="absolute right-2.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-sky-500 pointer-events-none">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </div>
+    </div>
+    {% else %}
+    <div>
+      <label class="block text-sm font-medium text-slate-600 mb-1">부서</label>
+      <input type="text" value="{{ current_dept }}" disabled
+            class="w-full border border-sky-100 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-600 shadow-inner">
+      <input type="hidden" name="department" value="{{ current_dept }}">
+    </div>
+    {% endif %}
+
+    <div>
+      <label class="block text-sm font-medium text-slate-600 mb-1">입사일</label>
+      <input type="date" name="join_date"
+            class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition"
+            required>
+    </div>
+
+    <!-- ✅ 5줄: 주소 (전체) -->
     <div class="md:col-span-2">
       <label class="block text-sm font-medium text-slate-600 mb-1">주소</label>
       <input type="text" name="address"
-             placeholder="예: OO도 OO시 OO구 OO동 까지만..."
-             class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition">
+            placeholder="예: OO도 OO시 OO구 OO동 까지만..."
+            class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition">
     </div>
 
     <!-- ✅ 버튼 -->
     <div class="md:col-span-2 flex justify-between items-center mt-6">
       <a href="{{ url_for('employee.employee_list') }}"
-         class="text-slate-500 hover:text-sky-600 text-sm">← 돌아가기</a>
+        class="text-slate-500 hover:text-sky-600 text-sm">← 돌아가기</a>
       <button type="submit"
               class="bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium px-6 py-2 rounded-lg shadow-md transition">
         직원 등록
       </button>
     </div>
   </form>
+
 </div>
 
 <script>
