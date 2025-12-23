@@ -63,6 +63,9 @@ class Vacation(db.Model):
     is_flex = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=now_kst)
     approved = db.Column(db.Boolean, default=False)  # 승인 여부
+    memo = db.Column(db.String(255), nullable=True)
+    start_time = db.Column(db.String(5), nullable=True)  # "08:00"
+    end_time = db.Column(db.String(5), nullable=True)    # "17:00"
 
     user = db.relationship("User", foreign_keys=[user_id])
     target_user = db.relationship("User", foreign_keys=[target_user_id])
