@@ -139,6 +139,20 @@ def get_events():
 
     # 1) 전체 이벤트 불러오기
     all_events = Vacation.query.all()
+    
+        # ✅ 내 이벤트인지 판별(일반휴가 기준)
+    def _is_mine_event(ev):
+        current_names = {
+            (current_user.first_name or "").strip(),
+            (current_user.name or "").strip(),
+            (current_user.username or "").strip(),
+        }
+        return (
+            getattr(ev, "target_user_id", None) == current_user.id
+            or (getattr(ev, "target_user_id", None) in (None, 0) and getattr(ev, "user_id", None) == current_user.id)
+            or ((getattr(ev, "name", "") or "").strip() in current_names)
+        )
+
 
     # 2) 1차 필터링 (부서 / 탄력근무 특수 규칙)
     filtered = []
@@ -212,6 +226,12 @@ def get_events():
             if event_dept != selected_dept:
                 continue
 
+        # ✅ [핵심] 일반사용자는 "남의 승인대기" 일정은 숨김
+        # - approved=False 이면서 내 일정이 아니면 제외
+        # - 근무자(type=근무자)는 휴가 신청개념이 아니라서 예외 처리(원하면 제거 가능)
+        if (not current_user.is_admin) and (not current_user.is_superadmin):
+            if (getattr(e, "approved", False) is False) and (e.type != "근무자") and (not _is_mine_event(e)):
+                continue
 
         filtered.append(e)
 
@@ -439,6 +459,9 @@ def pending_requests(date):
     날짜별 '승인 대기(approved=False)' 휴가 목록 조회
     front-end에서 승인 모달에 사용됨.
     """
+    # ✅ 관리자(부서관리자)/총관리자만 승인대기 목록 조회 가능
+    if not (getattr(current_user, "is_admin", False) or getattr(current_user, "is_superadmin", False)):
+        return jsonify({"requests": []}), 403
 
     # 1) 날짜 파싱 (YYYY-MM-DD)
     try:
