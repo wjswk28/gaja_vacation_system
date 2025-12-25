@@ -9,7 +9,7 @@ from flask import (
     current_app
 )
 from flask_login import login_required, current_user
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import calendar
 from app.calendar_page import calendar_bp
 from app.models import Vacation, User, MonthLock
@@ -32,6 +32,7 @@ def calendar_page():
 
     # 기본 부서 목록 (고정값)
     base_departments = [
+        "의료진",
         "수술실",
         "물리치료",
         "도수",
@@ -80,22 +81,39 @@ def calendar_page():
         dept_list = sorted(set(base_departments + db_dept_list))
 
     else:
-        # ✅ 일반 사용자 또는 부서 관리자
-        current_dept = user.department or "수술실"
-        dept_list = []
+        # ✅ 일반 사용자 또는 부서 관리자: (내 부서 + 의료진)만 선택 가능
+        allowed = []
+        if user.department:
+            allowed.append(user.department)
+        allowed.append("의료진")
 
-        # 세션과 동기화
-        if session.get("department") != current_dept:
-            session["department"] = current_dept
+        # ✅ 중복 제거(순서 유지)
+        dept_list = []
+        seen = set()
+        for d in allowed:
+            if d and d not in seen:
+                dept_list.append(d)
+                seen.add(d)
+
+        # ✅ URL → 세션 → 기본값 순으로 선택 부서 결정(단, 허용된 부서만)
+        selected_dept = request.args.get("dept") or session.get("department") or (user.department or "수술실")
+        if selected_dept not in dept_list:
+            selected_dept = user.department or "수술실"
+
+        current_dept = selected_dept
+        session["department"] = current_dept
+
 
     # ✅ 선택된 부서의 직원 목록 (모달에서 근무자 버튼에 사용)
     users = User.query.filter_by(department=current_dept).all()
     user_names = [u.first_name or u.name or u.username for u in users] or []
+    user_dept = (user.department or "").strip() or "관리자"
 
     return render_template(
         "calendar.html",
         username=user.name or f"{user.last_name}{user.first_name}" or user.username,
-        dept=current_dept,
+        dept=current_dept,              # ✅ '선택한 캘린더 부서' (드롭다운 따라감)
+        user_dept=user_dept,            # ✅ '로그인한 내 소속 부서' (고정 표시용)
         user_names=user_names,
         is_admin=user.is_admin,
         is_superadmin=user.is_superadmin,
@@ -113,6 +131,11 @@ def get_events():
         or session.get("department")
         or current_user.department
     )
+    # ✅ 일반 사용자/부서관리자는 (내부서, 의료진)만 허용
+    if not current_user.is_superadmin:
+        allowed = {current_user.department, "의료진"}
+        if selected_dept not in allowed:
+            selected_dept = current_user.department
 
     # 1) 전체 이벤트 불러오기
     all_events = Vacation.query.all()
@@ -141,18 +164,29 @@ def get_events():
         # -------------------------------
         # 일반 휴가 일정 (부서 기준 필터링)
         # -------------------------------
-        user = User.query.get(e.user_id) if e.user_id else None
-        if not user:
+        # ✅ 부서 판정은 "대상자(target_user_id)" 우선
+        owner_user = None
+        if getattr(e, "target_user_id", None):
+            owner_user = User.query.get(e.target_user_id)
+        elif e.user_id:
+            owner_user = User.query.get(e.user_id)
+
+        # ✅ department는 DB 값 우선, 없으면 대상자 부서로만 fallback
+        event_dept = (e.department or (owner_user.department if owner_user else "") or "").strip()
+
+        # ✅ 부서가 끝내 판정 안되면 아예 제외(수술실로 잘못 섞이는 것 방지)
+        if not event_dept:
             continue
 
-        # 총관리자 → URL 파라미터 기준 부서 필터
+        # ✅ superadmin: 선택 부서만
         if current_user.is_superadmin:
-            if selected_dept and user.department != selected_dept:
+            if selected_dept and event_dept != selected_dept:
                 continue
         else:
-            # 일반 관리자/직원 → 자기 부서만
-            if user.department != current_user.department:
+            # ✅ 일반/부서관리자: 선택한 부서(내부서 또는 의료진)만
+            if event_dept != selected_dept:
                 continue
+
 
         filtered.append(e)
 
@@ -177,13 +211,16 @@ def get_events():
                 continue
 
             # ⭐ 일반 휴가 일정
-            if (
-                e.user_id == current_user.id or
-                e.target_user_id == current_user.id or
-                e.name in current_names
-            ):
-                filtered.append(e)
+            is_mine = (
+                (getattr(e, "target_user_id", None) == current_user.id)
+                # ✅ 레거시(옛 데이터)만 user_id로 보완: target_user_id가 없을 때만 인정
+                or (getattr(e, "target_user_id", None) in (None, 0) and e.user_id == current_user.id)
+                or (e.name in current_names)
+            )
 
+
+            if is_mine:
+                filtered.append(e)
 
     # -------------------------------
     # 4) 출력 변환
@@ -199,6 +236,8 @@ def get_events():
         "탄력근무": "#6b7280",
         "근무자": "#38bdf8",
         "토연차": "#a855f7",
+        "일정": "#16a34a",  # 초록(원하는 색으로 바꿔도 됨)
+
     }
 
     event_list = []
@@ -210,14 +249,27 @@ def get_events():
         color = color_map.get(etype, "#22c55e") if approved else "#9ca3af"
 
         start = e.start_date.isoformat()
-        end = e.end_date.isoformat()
+
+        # ✅ FullCalendar allDay 규칙: end는 "다음날"로 보내야 하루짜리도 정상 표시됨
+        end = (e.end_date + timedelta(days=1)).isoformat()
+
 
         short_name = name[-2:] if len(name) > 2 else name
+
+        # ✅ 일정 메모/시간 가져오기 (없으면 빈값)
+        memo = (getattr(e, "memo", "") or "").strip()
+        st = (getattr(e, "start_time", "") or "").strip()
+        en = (getattr(e, "end_time", "") or "").strip()
 
         if etype == "탄력근무":
             hour_sign = "+" if (e.hours and e.hours > 0) else ""
             hour_display = f"{hour_sign}{e.hours}h"
             title_text = f"{short_name} (탄력 {hour_display})"
+
+        elif etype == "일정":
+            # ✅ 윤진(은행) 형태로 만들기 (메모 없으면 '일정')
+            title_text = f"{short_name}({memo or '일정'})"
+
         else:
             title_text = f"{short_name} ({etype})"
 
@@ -233,6 +285,9 @@ def get_events():
             "type": etype,
             "approved": approved,
             "allDay": True,
+            "memo": memo,
+            "start_time": st,
+            "end_time": en,
         })
 
     return jsonify(event_list)
@@ -360,14 +415,46 @@ def pending_requests(date):
     front-end에서 승인 모달에 사용됨.
     """
 
-    # Vacation 모델에서 start_date로 필터링
-    pending_list = Vacation.query.filter_by(
-        start_date=date,
-        approved=False
+    # 1) 날짜 파싱 (YYYY-MM-DD)
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"requests": []})
+
+    # 2) 조회할 부서 결정 (권한 강제)
+    req_dept = (request.args.get("dept") or "").strip()
+
+    if current_user.is_superadmin:
+        dept = req_dept or (session.get("department") or current_user.department or "")
+    else:
+        dept = (current_user.department or "").strip()
+
+    if not dept:
+        return jsonify({"requests": []})
+
+    # 3) 일단 날짜 + 승인대기만 조회
+    pending_list = Vacation.query.filter(
+        Vacation.start_date == day,
+        Vacation.approved == False
     ).all()
 
+    # 4) 응답에서 "부서"로 최종 필터링 (✅ 서버에서 섞임 차단)
     result = []
     for v in pending_list:
+        v_dept = (getattr(v, "department", None) or "").strip()
+
+        # department가 비어있는 레거시 데이터는 대상자/작성자 부서로 보완
+        if not v_dept and getattr(v, "target_user_id", None):
+            tu = User.query.get(v.target_user_id)
+            v_dept = (tu.department if tu else "") or ""
+        if not v_dept and getattr(v, "user_id", None):
+            uu = User.query.get(v.user_id)
+            v_dept = (uu.department if uu else "") or ""
+
+        v_dept = (v_dept or "").strip()
+        if v_dept != dept:
+            continue
+
         result.append({
             "id": v.id,
             "name": v.name,
@@ -377,22 +464,44 @@ def pending_requests(date):
 
     return jsonify({"requests": result})
 
-
+# ===========================================
+# ✅ 휴가 승인/거절 API 라우트
 #--------------------------------------------
 @calendar_bp.route("/approve_request/<int:event_id>", methods=["POST"])
 @login_required
 def approve_request(event_id):
+
+    # ✅ 관리자만 승인 가능(총관리자 포함)
+    if not (getattr(current_user, "is_admin", False) or getattr(current_user, "is_superadmin", False)):
+        return jsonify({"status": "error", "message": "관리자만 승인할 수 있습니다."}), 403
+
     v = Vacation.query.get(event_id)
     if not v:
-        return jsonify({"status": "error", "message": "일정을 찾을 수 없습니다."})
+        return jsonify({"status": "error", "message": "일정을 찾을 수 없습니다."}), 404
+
+    # ✅ 부서 판정: DB department 우선 → target_user 부서 → user_id 부서
+    dept = (getattr(v, "department", None) or "").strip()
+
+    if not dept and getattr(v, "target_user_id", None):
+        tu = User.query.get(v.target_user_id)
+        dept = (tu.department if tu else "") or ""
+
+    if not dept and getattr(v, "user_id", None):
+        uu = User.query.get(v.user_id)
+        dept = (uu.department if uu else "") or ""
+
+    dept = (dept or "").strip()
+    if not dept:
+        return jsonify({"status": "error", "message": "부서를 판정할 수 없습니다."}), 400
+
+    # ✅ 타부서 승인 차단 (총관리자만 예외)
+    if not getattr(current_user, "is_superadmin", False):
+        if dept != (current_user.department or "").strip():
+            return jsonify({"status": "error", "message": "타부서 일정은 승인할 수 없습니다."}), 403
 
     # ✅ 확정된 달이면 총관리자만 승인 가능
-    year = int(str(v.start_date)[:4])
-    month = int(str(v.start_date)[5:7])
-    dept = None
-    u = User.query.get(v.user_id) if v.user_id else None
-    dept = (u.department if u else (session.get("department") or current_user.department))
-
+    year = v.start_date.year
+    month = v.start_date.month
     if _is_locked(dept, year, month) and (not current_user.is_superadmin):
         return jsonify({"status": "error", "message": "확정된 달입니다. 총관리자만 승인/수정할 수 있습니다."}), 403
 
@@ -404,23 +513,44 @@ def approve_request(event_id):
 @calendar_bp.route("/reject_request/<int:event_id>", methods=["POST"])
 @login_required
 def reject_request(event_id):
+
+    # ✅ 관리자만 삭제 가능(총관리자 포함)
+    if not (getattr(current_user, "is_admin", False) or getattr(current_user, "is_superadmin", False)):
+        return jsonify({"status": "error", "message": "관리자만 삭제할 수 있습니다."}), 403
+
     v = Vacation.query.get(event_id)
     if not v:
-        return jsonify({"status": "error", "message": "일정을 찾을 수 없습니다."})
+        return jsonify({"status": "error", "message": "일정을 찾을 수 없습니다."}), 404
+
+    # ✅ 부서 판정: DB department 우선 → target_user 부서 → user_id 부서
+    dept = (getattr(v, "department", None) or "").strip()
+
+    if not dept and getattr(v, "target_user_id", None):
+        tu = User.query.get(v.target_user_id)
+        dept = (tu.department if tu else "") or ""
+
+    if not dept and getattr(v, "user_id", None):
+        uu = User.query.get(v.user_id)
+        dept = (uu.department if uu else "") or ""
+
+    dept = (dept or "").strip()
+    if not dept:
+        return jsonify({"status": "error", "message": "부서를 판정할 수 없습니다."}), 400
+
+    # ✅ 타부서 삭제 차단 (총관리자만 예외)
+    if not getattr(current_user, "is_superadmin", False):
+        if dept != (current_user.department or "").strip():
+            return jsonify({"status": "error", "message": "타부서 일정은 삭제할 수 없습니다."}), 403
 
     # ✅ 확정된 달이면 총관리자만 삭제 가능
-    year = int(str(v.start_date)[:4])
-    month = int(str(v.start_date)[5:7])
-    u = User.query.get(v.user_id) if v.user_id else None
-    dept = (u.department if u else (session.get("department") or current_user.department))
-
+    year = v.start_date.year
+    month = v.start_date.month
     if _is_locked(dept, year, month) and (not current_user.is_superadmin):
         return jsonify({"status": "error", "message": "확정된 달입니다. 총관리자만 삭제/수정할 수 있습니다."}), 403
 
     db.session.delete(v)
     db.session.commit()
     return jsonify({"status": "deleted"})
-
 
 # ============================================
 # ✅ 공휴일 API 연동 라우트
