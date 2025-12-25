@@ -12,7 +12,7 @@
     style="isolation: isolate;">
     <!-- 제목 -->
     <div class="flex items-center justify-center gap-2">
-      {% if current_user.is_superadmin %}
+      {% if current_user.is_superadmin or dept_list %}
         <div class="flex flex-col items-center gap-2">
           <!-- 첫 줄: 아이콘 + 타이틀 정렬 -->
             <div class="flex items-center justify-center md:justify-start gap-2 mb-3">
@@ -22,8 +22,8 @@
 
 
           <!-- 🔽 부서 선택 드롭박스 -->
-          <div class="flex items-center gap-2">
-            <label for="deptSelect" class="text-sm text-slate-600">부서 선택:</label>
+          <div class="flex items-center gap-2 mb-2">
+            <label for="deptSelect" class="text-[16px] text-slate-600">부서 선택:</label>
             <select id="deptSelect"
               class="border border-sky-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none">
               {% for d in dept_list %}
@@ -62,7 +62,8 @@
     {% if not current_user.is_superadmin %}
     <p class="text-sky-600 font-semibold flex items-center justify-center gap-1 mt-0 mb-1 md:mb-3 text-lg">
         <span class="align-middle leading-none">{{ username }}</span>
-        <span class="text-slate-500 text-base align-middle leading-none">({{ dept }})</span>
+        <span class="text-slate-500 text-base align-middle leading-none">({{ user_dept }})</span>
+
     </p>
     {% endif %}
 
@@ -142,6 +143,18 @@
     <!-- 🟢 탭 1: 휴가 지정 -->
     <div id="vacationTab">
       <h3 class="text-base font-semibold mb-2">휴가 종류</h3>
+      {% if dept == "의료진" %}
+        <div class="text-left mb-3">
+          <label class="text-sm text-slate-600">의료진 선택</label>
+          <select id="medicalUser"
+            class="w-full mt-1 border border-sky-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none">
+            {% for name in user_names %}
+              <option value="{{ name }}">{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endif %}
+
       <div class="flex flex-wrap justify-center gap-2 mb-4">
         <button class="vac-btn flex items-center justify-center bg-red-100 hover:bg-red-200 text-red-700 py-1 px-2 rounded" data-type="연차">연차</button>
         <button class="vac-btn flex items-center justify-center bg-orange-100 hover:bg-orange-200 text-orange-700 py-1 px-2 rounded" data-type="반차(전)">반차(전)</button>
@@ -150,7 +163,36 @@
         <button class="vac-btn flex items-center justify-center bg-emerald-100 hover:bg-emerald-200 text-emerald-700 py-1 px-2 rounded" data-type="병가">병가</button>
         <button class="vac-btn flex items-center justify-center bg-indigo-100 hover:bg-indigo-200 text-indigo-700 py-1 px-2 rounded" data-type="예비군">예비군</button>
         <button class="vac-btn flex items-center justify-center bg-purple-100 hover:bg-purple-200 text-purple-700 py-1 px-2 rounded" data-type="토연차">토연차</button>
+      
+        {% if dept == "의료진" %}
+          <button class="vac-btn flex items-center justify-center bg-sky-100 hover:bg-sky-200 text-sky-700 py-1 px-2 rounded"
+                  data-type="일정">일정</button>
+        {% endif %}
       </div>
+
+      {% if dept == "의료진" %}
+          <div id="scheduleFields" class="hidden mt-3 text-left space-y-2">
+            <div>
+              <label class="text-sm text-slate-600">메모</label>
+              <input id="scheduleMemo"
+                class="w-full mt-1 border border-sky-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none"
+                placeholder="메모(선택)" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-sm text-slate-600">시작</label>
+                <select id="scheduleStart"
+                  class="w-full mt-1 border border-sky-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none"></select>
+              </div>
+              <div>
+                <label class="text-sm text-slate-600">종료</label>
+                <select id="scheduleEnd"
+                  class="w-full mt-1 border border-sky-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none"></select>
+              </div>
+            </div>
+          </div>
+        {% endif %}
     </div>
 
     <!-- 🟠 탭 2: 근무자 지정 -->
@@ -408,6 +450,33 @@ document.addEventListener("DOMContentLoaded", async function () {
     return;
   }
 
+  // ✅ 시간 옵션 채우기 (30분 단위)
+  function fillTimeOptions(selectEl) {
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 30) {
+        const hh = String(h).padStart(2, "0");
+        const mm = String(m).padStart(2, "0");
+        const v = `${hh}:${mm}`;
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = v;
+        selectEl.appendChild(opt);
+      }
+    }
+  }
+
+  // ✅ 의료진 일정 입력 요소가 있으면 옵션 채우기
+  const scheduleStart = document.getElementById("scheduleStart");
+  const scheduleEnd = document.getElementById("scheduleEnd");
+  if (scheduleStart && scheduleEnd) {
+    fillTimeOptions(scheduleStart);
+    fillTimeOptions(scheduleEnd);
+    scheduleStart.value = "08:00";
+    scheduleEnd.value = "17:00";
+  }
+
   //공용 리셋 함수
   function resetVacationButtons() {
     document.querySelectorAll(".vac-btn").forEach(btn => {
@@ -657,10 +726,12 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     // ✅ 전체 일정 / 내 일정 전환 반영
     events: function (fetchInfo, successCallback, failureCallback) {
-      const baseUrl = `/events?dept=${encodeURIComponent(currentDept)}`;
-      const url = showMyOnly ? `${baseUrl}&my=1` : baseUrl;
+      const eventsBase = "{{ url_for('calendar.get_events') }}"; // ✅ 하드코딩 금지
+      const params = new URLSearchParams({ dept: currentDept });
 
-      axios.get(url)
+      if (showMyOnly) params.set("my", "1");
+
+      axios.get(`${eventsBase}?${params.toString()}`)
         .then((res) => successCallback(res.data))
         .catch((err) => failureCallback(err));
     },
@@ -701,6 +772,36 @@ document.addEventListener("DOMContentLoaded", async function () {
                 titleEl.textContent = originalTitle;
             }
         }
+
+        // ===========================
+        // ✅ "일정"은: 윤진(메모) + 다음줄 시간
+        // ===========================
+        if (type === "일정" && titleEl) {
+            const memo = info.event.extendedProps.memo || "";
+            const st = info.event.extendedProps.start_time || "";
+            const en = info.event.extendedProps.end_time || "";
+            const timeRange = (st && en) ? `${st}-${en}` : "";
+
+            // 이름만 추출 (윤진(은행)에서 윤진)
+            const nameOnly = (info.event.title || "").split("(")[0].trim();
+
+            if (isMobileView) {
+                // 모바일은 기존 정책대로 "이름만" 유지 (원하면 여기서 시간도 표시 가능)
+                titleEl.textContent = nameOnly;
+            } else {
+                // PC/태블릿: 2줄 렌더링
+                titleEl.innerHTML = `
+                    ${nameOnly}(${memo || "일정"})
+                    <div class="text-[11px] opacity-90 leading-tight">${timeRange}</div>
+                `;
+
+                // 줄바꿈이 실제로 보이게(FullCalendar 기본은 nowrap인 경우가 많음)
+                titleEl.style.whiteSpace = "normal";
+                info.el.style.whiteSpace = "normal";
+                info.el.style.height = "auto";
+            }
+        }
+
 
         // ✅ 여기부터는 "모바일일 때 뱃지 간격/높이 강제 조정" (인라인 스타일)
         if (isMobileView) {
@@ -763,6 +864,13 @@ document.addEventListener("DOMContentLoaded", async function () {
       }
 
       const currentDept = "{{ dept }}".trim();
+      const userDept = "{{ current_user.department or '' }}".trim();
+
+      // ✅ 의료진 캘린더: 타부서 일반직원은 조회만 가능(등록 모달 금지)
+      if (currentDept === "의료진" && !(isAdmin || isSuperadmin) && userDept !== "의료진") {
+        showToast("의료진 캘린더는 조회만 가능합니다.", "info");
+        return;
+      }
 
       // ⭐ 휴가 버튼 보이기/숨기기 — 일반 직원에게만 적용
       const vacBtns = document.querySelectorAll(".vac-btn");
@@ -932,9 +1040,15 @@ document.addEventListener("DOMContentLoaded", async function () {
         // ============================================
         if (isVacationType && !approved && isAdmin) {
             // (여기 아래는 기존 승인 모달 코드 그대로 유지)
+            const myDept = "{{ (current_user.department or '') }}".trim();   // 로그인한 내 부서
+            const isSuper = ("{{ 'true' if current_user.is_superadmin else 'false' }}" === "true");
+
+            const deptForPending = isSuper ? currentDept : myDept;
+
             const pendingUrl =
-                "{{ url_for('calendar.pending_requests', date='__DATE__') }}"
-                    .replace("__DATE__", eventStart);
+            "{{ url_for('calendar.pending_requests', date='__DATE__') }}"
+                .replace("__DATE__", eventStart)
+            + `?dept=${encodeURIComponent(deptForPending)}`;
 
             console.log("🔵 승인 요청 조회:", pendingUrl);
 
@@ -1168,10 +1282,13 @@ document.addEventListener("DOMContentLoaded", async function () {
         // 🔹 렌더링 재실행
         setTimeout(() => lucide.createIcons(), 10);
       // ✅ 이벤트 소스 교체
-      const dept = encodeURIComponent("{{ dept }}");
-      const newUrl = showMyOnly
-        ? `/events?dept=${dept}&my=1`
-        : `/events?dept=${dept}`;
+      const eventsBase = "{{ url_for('calendar.get_events') }}";
+      const dept = "{{ dept }}".trim();
+
+      const params = new URLSearchParams({ dept });
+      if (showMyOnly) params.set("my", "1");
+
+      const newUrl = `${eventsBase}?${params.toString()}`;
 
       calendar.removeAllEventSources();
       calendar.addEventSource(newUrl);
@@ -1201,12 +1318,28 @@ document.addEventListener("DOMContentLoaded", async function () {
   tabWorker.addEventListener("click", () => showTab("worker"));
   tabFlex.addEventListener("click", () => showTab("flex"));
 
-  // ✅ 휴가 버튼 클릭 (선택 표시)
-  document.querySelectorAll(".vac-btn").forEach((btn) => {
+  // ✅ 관리자 모달(휴가 탭) 버튼만: 선택 표시 + '일정' 입력창 토글
+  document.querySelectorAll("#adminModal #vacationTab .vac-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
-      selectedType = e.target.getAttribute("data-type");
-      document.querySelectorAll(".vac-btn").forEach((b) => b.classList.remove("ring-2", "ring-sky-400"));
-      e.target.classList.add("ring-2", "ring-sky-400");
+      e.preventDefault();
+
+      const realBtn = e.currentTarget;
+      selectedType = realBtn.getAttribute("data-type");
+
+      // ✅ 관리자 휴가 버튼만 테두리 표시
+      document
+        .querySelectorAll("#adminModal #vacationTab .vac-btn")
+        .forEach((b) => b.classList.remove("ring-2", "ring-sky-400"));
+
+      realBtn.classList.add("ring-2", "ring-sky-400");
+
+      // ✅ '일정' 선택 시에만 입력창 표시
+      const scheduleFields = document.getElementById("scheduleFields");
+      if (scheduleFields) {
+        scheduleFields.classList.toggle("hidden", selectedType !== "일정");
+      }
+
+      console.log("[admin vacation] selectedType =", selectedType);
     });
   });
 
@@ -1254,13 +1387,57 @@ document.addEventListener("DOMContentLoaded", async function () {
 
             // 🟢 휴가 탭
             if (!vacationTab.classList.contains("hidden") && selectedType) {
-                res = await axios.post("{{ url_for('vacation.add_event') }}", {
-                    start: selectedDate,
-                    end: selectedDate,
-                    type: selectedType,
-                    department: "{{ dept }}".trim()
-                });
+              const dept = "{{ dept }}".trim();
+
+              const payload = {
+                start: selectedDate,
+                end: selectedDate,
+                type: selectedType,
+                department: dept
+              };
+
+              // ✅ 의료진 캘린더에서만: 대상 의료진 선택
+              if (dept === "의료진") {
+                const medicalUser = document.getElementById("medicalUser");
+                const targetName = medicalUser ? (medicalUser.value || "").trim() : "";
+
+                if (!targetName) {
+                  showToast("의료진을 선택해주세요.", "error");
+                  return;
+                }
+
+                payload.target_name = targetName;
+
+                // ✅ '일정'이면 메모/시간 포함
+                if (selectedType === "일정") {
+                  const memo = (document.getElementById("scheduleMemo")?.value || "").trim();
+                  const st = document.getElementById("scheduleStart")?.value || "";
+                  const en = document.getElementById("scheduleEnd")?.value || "";
+
+                  if (!st || !en) {
+                    showToast("시작/종료 시간을 선택해주세요.", "error");
+                    return;
+                  }
+                  if (st >= en) {
+                    showToast("종료 시간은 시작 시간보다 늦어야 합니다.", "error");
+                    return;
+                  }
+
+                  payload.memo = memo;
+                  payload.start_time = st;
+                  payload.end_time = en;
+                }
+              } else {
+                // ✅ 의료진이 아닌 부서에서는 일정 선택 자체를 막기(프론트 안전장치)
+                if (selectedType === "일정") {
+                  showToast("‘일정’은 의료진 캘린더에서만 등록할 수 있습니다.", "error");
+                  return;
+                }
+              }
+
+              res = await axios.post("{{ url_for('vacation.add_event') }}", payload);
             }
+
 
             // 🟠 근무자 탭
             if (!workerTab.classList.contains("hidden") && selectedWorkers.length > 0) {
@@ -1354,12 +1531,19 @@ document.addEventListener("DOMContentLoaded", async function () {
   const confirmAddBtn = document.getElementById("confirmAddBtn");
   const closeModalBtn = document.getElementById("closeModal");
 
-  // ✅ 휴가 버튼 클릭 시 선택만 표시
-  document.querySelectorAll(".vac-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".vac-btn").forEach(b => b.classList.remove("ring-4", "ring-sky-400"));
+  // ✅ 일반 사용자 모달 버튼만: 선택 표시
+  document.querySelectorAll("#vacationModal .vac-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+
+      document
+        .querySelectorAll("#vacationModal .vac-btn")
+        .forEach((b) => b.classList.remove("ring-4", "ring-sky-400"));
+
       btn.classList.add("ring-4", "ring-sky-400");
       selectedType = btn.dataset.type;
+
+      console.log("[user vacation] selectedType =", selectedType);
     });
   });
 
@@ -1397,6 +1581,7 @@ document.addEventListener("DOMContentLoaded", async function () {
                 start: selectedDate,
                 end: selectedDate,
                 type: selectedType,
+                department: currentDept,   // ✅ 추가
             });
 
             if (res.data.status === "success") {
@@ -1477,6 +1662,20 @@ function openAdminModal(dateStr) {
   // 날짜 표시
   if (adminModalDate) {
     adminModalDate.textContent = `날짜: ${dateStr}`;
+  }
+
+  // ✅ 의료진 일정 입력 초기화(요소가 있을 때만)
+  const scheduleFields = document.getElementById("scheduleFields");
+  if (scheduleFields) scheduleFields.classList.add("hidden");
+
+  const memoEl = document.getElementById("scheduleMemo");
+  if (memoEl) memoEl.value = "";
+
+  const stEl = document.getElementById("scheduleStart");
+  const enEl = document.getElementById("scheduleEnd");
+  if (stEl && enEl) {
+    stEl.value = "08:00";
+    enEl.value = "17:00";
   }
 
   // 공용 초기화 (근무자 선택 제거)
