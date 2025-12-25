@@ -55,6 +55,14 @@ def add_event():
         start = (data.get("start") or "").strip()
         end = (data.get("end") or start).strip()
         vac_type = (data.get("type") or "연차").strip()
+        
+        # ✅ 탄력근무는 전용 API(/vacation/add_flex_event)로만 등록 허용
+        if vac_type == "탄력근무":
+            return jsonify({
+                "status": "error",
+                "message": "탄력근무는 전용 등록 기능으로만 추가할 수 있습니다."
+            }), 200
+
 
         worker_names = data.get("worker_names", []) or []
         single_worker = data.get("worker_name")
@@ -71,6 +79,12 @@ def add_event():
 
         if not selected_dept:
             selected_dept = user_dept
+            
+        # ✅ 일반 사용자는 부서 파라미터 조작 불가 (본인 부서만 등록)
+        if (not current_user.is_admin) and (not current_user.is_superadmin):
+            if selected_dept != user_dept:
+                return jsonify({"status": "error", "message": "다른 부서에는 등록할 수 없습니다."}), 403
+
 
         if not selected_dept:
             return jsonify({"status": "error", "message": "부서 정보가 없습니다. 캘린더를 새로고침 후 다시 시도해주세요."}), 200
@@ -327,9 +341,21 @@ def add_event():
 @login_required
 def approve_event(event_id):
     if not (current_user.is_admin or current_user.is_superadmin):
-        return jsonify({"status": "error", "message": "승인 권한이 없습니다."})
+        return jsonify({"status": "error", "message": "승인 권한이 없습니다."}), 403
+
 
     event = Vacation.query.get_or_404(event_id)
+    
+    # ✅ 중간관리자면 자기 부서만 승인 가능
+    if current_user.is_admin and (not current_user.is_superadmin):
+        if (event.department or "").strip() != (current_user.department or "").strip():
+            return jsonify({"status": "error", "message": "다른 부서 일정은 승인할 수 없습니다."}), 403
+
+    # ✅ 총관리자는 탄력근무 승인 금지 (원 설계 유지)
+    if current_user.is_superadmin and event.type == "탄력근무":
+        return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
+
+    
     blocked = _block_if_locked(event.department, event.start_date)
     if blocked:
         return blocked
@@ -349,14 +375,16 @@ def delete_event(event_id):
     blocked = _block_if_locked(event.department, event.start_date)
     if blocked:
         return blocked
+    
+    # ✅ 총관리자는 탄력근무를 삭제/처리 불가 (원 설계 유지)
+    if current_user.is_superadmin and event.type == "탄력근무":
+        return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
 
     # 🔹 이 일정이 "나"의 일정인지 user_id 기준으로 확인
     is_mine = (
         event.user_id == current_user.id
         or (getattr(event, "target_user_id", None) == current_user.id)
     )
-
-    from app import db  # 파일 상단에 이미 있으면 이 줄은 생략해도 됨
 
     # 1) 내 일정이면 승인 여부와 상관없이 삭제 허용
     if is_mine:
@@ -370,14 +398,25 @@ def delete_event(event_id):
             "message": "승인된 휴가가 삭제되었습니다." if was_approved else "신청이 취소되었습니다."
         })
 
-    # 2) 관리자 / 총관리자 → 어떤 일정이든 삭제 가능
-    if current_user.is_superadmin or current_user.is_admin:
+    # 2) 총관리자 / 중간관리자 삭제 권한 분리
+    if current_user.is_superadmin:
+        # (위에서 탄력근무는 이미 차단했지만, 안전하게 한 번 더)
+        if event.type == "탄력근무":
+            return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
+
         db.session.delete(event)
         db.session.commit()
-        return jsonify({
-            "status": "success",
-            "message": "일정이 삭제되었습니다."
-        })
+        return jsonify({"status": "success", "message": "일정이 삭제되었습니다."}), 200
+
+    if current_user.is_admin:
+        # ✅ 중간관리자는 자기 부서 일정만 삭제 가능
+        if (event.department or "").strip() != (current_user.department or "").strip():
+            return jsonify({"status": "error", "message": "다른 부서 일정은 삭제할 수 없습니다."}), 403
+
+        db.session.delete(event)
+        db.session.commit()
+        return jsonify({"status": "success", "message": "일정이 삭제되었습니다."}), 200
+
 
     # 3) 그 외에는 삭제 불가
     return jsonify({
@@ -418,6 +457,16 @@ def approve_vacation(vac_id):
         return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
 
     vac = Vacation.query.get(vac_id)
+    
+        # ✅ 중간관리자면 자기 부서만 승인 가능
+    if current_user.is_admin and (not current_user.is_superadmin):
+        if (vac.department or "").strip() != (current_user.department or "").strip():
+            return jsonify({"status": "error", "message": "다른 부서 일정은 승인할 수 없습니다."}), 403
+
+    # ✅ 총관리자는 탄력근무 승인 금지 (원 설계 유지)
+    if current_user.is_superadmin and vac.type == "탄력근무":
+        return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
+
     if not vac:
         return jsonify({"status": "error", "message": "휴가를 찾을 수 없습니다."}), 404
     blocked = _block_if_locked(vac.department, vac.start_date)
@@ -432,16 +481,21 @@ def approve_vacation(vac_id):
     })
 
 #------------------------------------------------------
-# 탄력근무 추가
+# 탄력근무 추가 (중간관리자 전용)
 #------------------------------------------------------
 @vacation_bp.route("/add_flex_event", methods=["POST"])
 @login_required
 def add_flex_event():
-    data = request.get_json()
 
-    target_name = data.get("target_name")
-    date_str = data.get("date")
-    hours = data.get("hours")
+    # ✅ 중간관리자만 허용 (총관리자/일반직원 금지)
+    if (not current_user.is_admin) or current_user.is_superadmin:
+        return jsonify({"status": "error", "message": "탄력근무 등록 권한이 없습니다."}), 403
+
+    data = request.get_json(silent=True) or {}
+
+    target_name = (data.get("target_name") or "").strip()
+    date_str = (data.get("date") or "").strip()
+    hours = data.get("hours", None)
 
     if not target_name or not date_str or hours is None:
         return jsonify({"status": "error", "message": "필수 값 누락"}), 400
@@ -457,33 +511,49 @@ def add_flex_event():
     except:
         return jsonify({"status": "error", "message": "시간값 오류"}), 400
 
-    # 🔥 타겟 직원 조회 (first_name 기반)
-    target_user = User.query.filter_by(first_name=target_name).first()
+    # ✅ 타겟 직원 조회: '내 부서'에서만 찾기 (동명이인/타부서 방지)
+    target_user = User.query.filter(
+        func.trim(User.department) == func.trim(current_user.department),
+        or_(
+            func.trim(User.first_name) == target_name,
+            func.trim(User.name) == target_name,
+        )
+    ).first()
+
     if not target_user:
-        return jsonify({"status": "error", "message": "직원 정보 없음"}), 400
-    
+        return jsonify({"status": "error", "message": "직원 정보 없음(같은 부서인지 확인)"}), 400
+
+    # ✅ 확정(잠금)된 달이면 등록 불가 (총관리자만 가능하도록 되어있다면 그대로 적용)
     blocked = _block_if_locked(target_user.department, date_obj)
     if blocked:
         return blocked
 
+    # ✅ (선택) 같은날 중복 방지
+    exists = Vacation.query.filter_by(
+        target_user_id=target_user.id,
+        department=target_user.department,
+        type="탄력근무",
+        start_date=date_obj,
+        end_date=date_obj
+    ).first()
+    if exists:
+        return jsonify({"status": "error", "message": "이미 해당 날짜에 탄력근무가 있습니다."}), 200
+
     flex_event = Vacation(
-        user_id=target_user.id,               # 🔥 반드시 저장
-        target_user_id=target_user.id,        # 🔥 본인 기준 확인용
-        name=target_user.first_name,          # 기존 유지 가능
-        department=target_user.department,    # 🔥 반드시 저장
+        user_id=target_user.id,
+        target_user_id=target_user.id,
+        name=target_user.first_name or target_user.name or target_user.username,
+        department=target_user.department,
         type="탄력근무",
         start_date=date_obj,
         end_date=date_obj,
         hours=hours,
         is_flex=True,
-        approved=True,                        # 탄력근무 자동 승인
+        approved=True,  # 탄력근무 자동 승인
         created_at=now_kst()
     )
 
     db.session.add(flex_event)
     db.session.commit()
 
-    return jsonify({"status": "success"})
-
-
-
+    return jsonify({"status": "success"}), 200
