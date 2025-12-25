@@ -145,21 +145,46 @@ def get_events():
     for e in all_events:
 
         # -------------------------------
-        # 탄력근무는 부서 무시
+        # ✅ 탄력근무 특수 규칙 (권한/부서 고정)
         # -------------------------------
         if e.type == "탄력근무":
 
-            # 관리자 → 모두 보임
-            if current_user.is_admin or current_user.is_superadmin:
-                filtered.append(e)
+            # 0) 총관리자는 탄력근무 절대 노출 금지
+            if current_user.is_superadmin:
                 continue
 
-            # 직원 → 본인만
-            if e.target_user_id == current_user.id or e.name == current_user.first_name:
-                filtered.append(e)
+            # 1) 탄력근무의 소속 부서 판정 (DB department 우선, 없으면 대상자 부서로 보완)
+            flex_dept = (getattr(e, "department", None) or "").strip()
+            if not flex_dept and getattr(e, "target_user_id", None):
+                tu = User.query.get(e.target_user_id)
+                flex_dept = (tu.department if tu else "") or ""
+            flex_dept = (flex_dept or "").strip()
+
+            # 2) “선택한 캘린더 부서”가 내 부서가 아닐 때는 탄력근무는 안 섞이게 처리
+            #    (의료진 캘린더에서 탄력근무가 떠버리는 것 방지)
+            if (selected_dept or "").strip() != (current_user.department or "").strip():
                 continue
 
-            continue  # 나머지는 제외
+            # 3) 중간관리자: 내 부서 탄력근무는 전체 조회
+            if current_user.is_admin:
+                if flex_dept == (current_user.department or "").strip():
+                    filtered.append(e)
+                continue
+
+            # 4) 일반 사용자: 내 탄력근무만
+            current_names = {
+                (current_user.first_name or "").strip(),
+                (current_user.name or "").strip(),
+                (current_user.username or "").strip(),
+            }
+            if (
+                getattr(e, "target_user_id", None) == current_user.id
+                or (getattr(e, "user_id", None) == current_user.id)  # 레거시 보완
+                or ((e.name or "").strip() in current_names)
+            ):
+                filtered.append(e)
+
+            continue
 
         # -------------------------------
         # 일반 휴가 일정 (부서 기준 필터링)
@@ -478,6 +503,10 @@ def approve_request(event_id):
     v = Vacation.query.get(event_id)
     if not v:
         return jsonify({"status": "error", "message": "일정을 찾을 수 없습니다."}), 404
+    
+    # ✅ 총관리자는 탄력근무 승인/처리 금지
+    if getattr(current_user, "is_superadmin", False) and (v.type == "탄력근무"):
+        return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
 
     # ✅ 부서 판정: DB department 우선 → target_user 부서 → user_id 부서
     dept = (getattr(v, "department", None) or "").strip()
@@ -521,6 +550,10 @@ def reject_request(event_id):
     v = Vacation.query.get(event_id)
     if not v:
         return jsonify({"status": "error", "message": "일정을 찾을 수 없습니다."}), 404
+    
+    # ✅ 총관리자는 탄력근무 삭제/처리 금지
+    if getattr(current_user, "is_superadmin", False) and (v.type == "탄력근무"):
+        return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
 
     # ✅ 부서 판정: DB department 우선 → target_user 부서 → user_id 부서
     dept = (getattr(v, "department", None) or "").strip()
