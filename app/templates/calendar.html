@@ -522,13 +522,23 @@ document.addEventListener("DOMContentLoaded", async function () {
       const btn = document.querySelector(".fc-confirmMonth-button");
       if (!btn) return;
 
-      // ✅ FullCalendar 버튼 구조 유지: span.fc-button-text만 업데이트
-      const textEl = btn.querySelector(".fc-button-text");
-      if (textEl) {
-        textEl.textContent = "확정";
-      } else {
-        // 혹시 span이 없을 때만 생성 (재렌더 타이밍 안전)
+      // ✅ "확정" 텍스트 중복(확정확정) 제거: fc-button-text를 1개만 남기고 나머지 삭제
+      const textEls = btn.querySelectorAll(".fc-button-text");
+
+      if (textEls.length === 0) {
+        // (예외) 혹시 없으면 1개만 생성
         btn.innerHTML = '<span class="fc-button-text">확정</span>';
+      } else {
+        // 첫 번째만 남기고 나머지는 제거
+        textEls.forEach((el, idx) => {
+          if (idx === 0) el.textContent = "확정";
+          else el.remove();
+        });
+
+        // 버튼 바로 아래에 붙은 "텍스트 노드"도 있으면 제거 (확정확정 방지)
+        Array.from(btn.childNodes).forEach((n) => {
+          if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) n.remove();
+        });
       }
 
       // 상태값
