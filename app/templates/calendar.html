@@ -491,73 +491,63 @@ document.addEventListener("DOMContentLoaded", async function () {
   // ✅ 전역 변수 (함수 밖에서 선언해야 함)
   let showMyOnly = false;
 
-  let _updatingConfirm = false;
   // ✅ 확정 버튼 상태 업데이트 (1~5일만 + 이미 확정이면 비활성)
   async function updateConfirmButtonState() {
-    if (_updatingConfirm) return;
-    _updatingConfirm = true;
+    const viewDate = calendar.getDate();
+    const viewY = viewDate.getFullYear();
+    const viewM = viewDate.getMonth() + 1;
+
     try {
-      const viewDate = calendar.getDate();
-      const viewY = viewDate.getFullYear();
-      const viewM = viewDate.getMonth() + 1;
+      const res = await axios.get("{{ url_for('calendar.month_lock_status') }}", {
+        params: { dept: currentDept, year: viewY, month: viewM }
+      });
 
-      try {
-        const res = await axios.get("{{ url_for('calendar.month_lock_status') }}", {
-          params: { dept: currentDept, year: viewY, month: viewM }
-        });
+      // ✅ 서버 판단 그대로 사용
+      window.__monthLocked = !!res.data.locked;
+      window.__canConfirmMonth = !!res.data.can_confirm;
 
-        // ✅ 서버 판단 그대로 사용
-        window.__monthLocked = !!res.data.locked;
-        window.__canConfirmMonth = !!res.data.can_confirm;
+      // 디버그(필요하면 유지)
+      console.log("[month_lock_status]", { viewY, viewM, ...res.data });
 
-        // 디버그(필요하면 유지)
-        console.log("[month_lock_status]", { viewY, viewM, ...res.data });
-
-      } catch (e) {
-        console.error("month_lock_status error:", e);
-        window.__monthLocked = false;
-        window.__canConfirmMonth = false;
-      }
-
-      const btn = document.querySelector(".fc-confirmMonth-button");
-      const unlockBtn = document.querySelector(".fc-unlockMonth-button");
-
-      // 상태값(서버에서 받아온 값)
-      const isLocked = !!window.__monthLocked;  // 확정됨(잠김)
-      const isReady  = !isLocked && !!isAdmin && !!window.__canConfirmMonth; // 확정 가능(활성)
-
-      // ✅ 확정 버튼 갱신(있을 때만)
-      if (btn) {
-        // 텍스트는 FullCalendar가 관리하므로 생성하지 않고 중복만 정리
-        const textEls = btn.querySelectorAll(".fc-button-text");
-        if (textEls.length > 1) {
-          textEls.forEach((el, idx) => {
-            if (idx > 0) el.remove();
-          });
-        }
-        // 버튼 직계 텍스트 노드 제거(확정확정 방지)
-        Array.from(btn.childNodes).forEach((n) => {
-          if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) n.remove();
-        });
-
-        // 상태 클래스/활성화
-        btn.classList.toggle("is-confirmed", isLocked); // 초록
-        btn.classList.toggle("is-ready", isReady);      // 노랑
-        btn.disabled = !isReady;
-      }
-
-      // ✅ 확정 해제 버튼 갱신(있을 때만) — btn 없어도 실행
-      if (unlockBtn) {
-        const isSuper = window.__isSuperadmin === true;
-        const showUnlock = isSuper && isLocked; // 총관리자 + 잠김일 때만
-
-        unlockBtn.style.display = showUnlock ? "" : "none";
-        unlockBtn.disabled = !showUnlock;
-        unlockBtn.classList.toggle("is-enabled", showUnlock);
-      }
-    } finally {
-    _updatingConfirm = false;
+    } catch (e) {
+      console.error("month_lock_status error:", e);
+      window.__monthLocked = false;
+      window.__canConfirmMonth = false;
     }
+
+    const btn = document.querySelector(".fc-confirmMonth-button");
+    if (!btn) return;
+
+    // ✅ 텍스트는 항상 "확정" 유지
+    btn.textContent = "확정";
+
+    // 상태값
+    const isLocked = !!window.__monthLocked;                 // 확정됨(잠김)
+    const isReady  = !isLocked && !!isAdmin && !!window.__canConfirmMonth;  // 확정 가능(활성)
+
+    // ✅ 상태 클래스 (CSS가 색을 담당)
+    btn.classList.toggle("is-confirmed", isLocked); // 초록
+    btn.classList.toggle("is-ready", isReady);      // 노랑
+
+    // ✅ 활성/비활성
+    btn.disabled = !isReady;
+
+    // ✅ 확정 해제 버튼(총관리자 전용)
+    const unlockBtn = document.querySelector(".fc-unlockMonth-button");
+    if (unlockBtn) {
+      const isSuper = window.__isSuperadmin === true;
+
+      const isLocked = !!window.__monthLocked;
+
+      // ✅ 총관리자 + 잠김일 때만 보이게
+      const showUnlock = isSuper && isLocked;
+
+      unlockBtn.style.display = showUnlock ? "" : "none";
+      unlockBtn.disabled = !showUnlock;
+
+      // ✅ 상태 클래스(색은 CSS에서)
+      unlockBtn.classList.toggle("is-enabled", showUnlock);
+    } 
   }
 
 
@@ -729,12 +719,9 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     buttonText: { today: "오늘", month: "월", week: "주", list: "목록" },
 
-    datesSet: function () {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          updateConfirmButtonState();
-        });
-      });
+    // ✅ 달이 바뀔 때마다 확정 버튼 상태 갱신
+    datesSet: async function () {
+      await updateConfirmButtonState();
     },
 
     // ✅ 전체 일정 / 내 일정 전환 반영
