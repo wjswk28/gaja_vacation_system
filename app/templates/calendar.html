@@ -522,24 +522,22 @@ document.addEventListener("DOMContentLoaded", async function () {
       const btn = document.querySelector(".fc-confirmMonth-button");
       if (!btn) return;
 
-      // ✅ "확정" 텍스트 중복(확정확정) 제거: fc-button-text를 1개만 남기고 나머지 삭제
+      // ✅ 텍스트는 FullCalendar가 렌더링하므로 "생성"하지 말고, 중복만 정리
       const textEls = btn.querySelectorAll(".fc-button-text");
 
-      if (textEls.length === 0) {
-        // (예외) 혹시 없으면 1개만 생성
-        btn.innerHTML = '<span class="fc-button-text">확정</span>';
-      } else {
-        // 첫 번째만 남기고 나머지는 제거
-        textEls.forEach((el, idx) => {
-          if (idx === 0) el.textContent = "확정";
-          else el.remove();
-        });
+      // 버튼 텍스트가 아직 렌더 중이면(0개) 건드리지 않고 다음 프레임에 맡김
+      if (textEls.length === 0) return;
 
-        // 버튼 바로 아래에 붙은 "텍스트 노드"도 있으면 제거 (확정확정 방지)
-        Array.from(btn.childNodes).forEach((n) => {
-          if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) n.remove();
-        });
-      }
+      // 첫 번째만 남기고 나머지 제거
+      textEls.forEach((el, idx) => {
+        if (idx > 0) el.remove();
+      });
+
+      // 버튼 직계 텍스트 노드 제거(확정확정 방지)
+      Array.from(btn.childNodes).forEach((n) => {
+        if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) n.remove();
+      });
+
 
       // 상태값
       const isLocked = !!window.__monthLocked;                 // 확정됨(잠김)
@@ -742,9 +740,11 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     buttonText: { today: "오늘", month: "월", week: "주", list: "목록" },
 
-    // ✅ 달이 바뀔 때마다 확정 버튼 상태 갱신
-    datesSet: async function () {
-      await updateConfirmButtonState();
+    datesSet: function () {
+      // ✅ 툴바 렌더가 끝난 다음 프레임에 실행 (중복 텍스트 '찰나' 방지)
+      requestAnimationFrame(() => {
+        updateConfirmButtonState();
+      });
     },
 
     // ✅ 전체 일정 / 내 일정 전환 반영
