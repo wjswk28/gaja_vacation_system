@@ -5,6 +5,7 @@ from app.vacation import vacation_bp
 from app.models import User, Vacation, MonthLock
 from app import db
 from app.models import now_kst
+from sqlalchemy import or_, func
 
 
 # =======================================================
@@ -47,58 +48,130 @@ def _block_if_locked(dept: str, dt: date):
 @login_required
 def add_event():
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         if not data:
             return jsonify({"status": "error", "message": "데이터가 없습니다."}), 400
 
-        start = data.get("start")
-        end = data.get("end") or start
-        vac_type = data.get("type", "연차")
-        worker_names = data.get("worker_names", [])
+        start = (data.get("start") or "").strip()
+        end = (data.get("end") or start).strip()
+        vac_type = (data.get("type") or "연차").strip()
+
+        worker_names = data.get("worker_names", []) or []
         single_worker = data.get("worker_name")
-        target_name = data.get("target_name")  # 관리자가 선택한 직원명
+        target_name = (data.get("target_name") or "").strip()  # 관리자가 선택한 직원명
+
+        # ✅ 의료진/일정 추가 입력
+        selected_dept = (data.get("department") or "").strip()
+        memo = (data.get("memo") or "").strip()
+        start_time = (data.get("start_time") or "").strip()  # "08:00"
+        end_time = (data.get("end_time") or "").strip()      # "17:00"
 
         user_name = current_user.first_name or current_user.name or current_user.username
-        user_dept = current_user.department
+        user_dept = (current_user.department or "").strip()
 
+        if not selected_dept:
+            selected_dept = user_dept
+
+        if not selected_dept:
+            return jsonify({"status": "error", "message": "부서 정보가 없습니다. 캘린더를 새로고침 후 다시 시도해주세요."}), 200
+        
         # 날짜 변환
         try:
             start_date = datetime.strptime(start, "%Y-%m-%d").date()
             end_date = datetime.strptime(end, "%Y-%m-%d").date()
-        
         except Exception:
-            return jsonify({"status": "error", "message": "날짜 형식 오류"}), 400
-        
-        blocked = _block_if_locked(user_dept, start_date)
+            return jsonify({"status": "error", "message": "날짜 형식 오류"}), 200
+
+        if end_date < start_date:
+            return jsonify({"status": "error", "message": "종료일이 시작일보다 빠릅니다."}), 200
+
+        # =======================================================
+        # ✅ '일정'은 의료진 부서에서만 허용
+        # =======================================================
+        if vac_type == "일정" and selected_dept != "의료진":
+            return jsonify({"status": "error", "message": "‘일정’은 의료진 캘린더에서만 등록할 수 있습니다."}), 200
+
+        # 일정은 하루만 허용 + 시간 필수
+        if vac_type == "일정":
+            if start_date != end_date:
+                return jsonify({"status": "error", "message": "‘일정’은 하루만 선택해서 등록해주세요."}), 200
+            if not start_time or not end_time:
+                return jsonify({"status": "error", "message": "‘일정’은 시작/종료 시간이 필요합니다."}), 200
+            if start_time >= end_time:
+                return jsonify({"status": "error", "message": "종료 시간은 시작 시간보다 늦어야 합니다."}), 200
+
+        # =======================================================
+        # ✅ 월 잠금 체크: 선택 부서 기준(의료진 포함)
+        # =======================================================
+        blocked = _block_if_locked(selected_dept, start_date)
+        if blocked:
+            return blocked
+        blocked = _block_if_locked(selected_dept, end_date)
         if blocked:
             return blocked
 
-        blocked = _block_if_locked(user_dept, end_date)
-        if blocked:
-            return blocked
-        
         weekday = start_date.weekday()  # 월=0 ~ 일=6
 
         # =======================================================
-        #  🟦 여러 부서 전용 토요일 토연차 규칙
+        #  🟦 여러 부서 전용 토요일 토연차 규칙 (선택부서 기준)
         # =======================================================
         TOYEONCHA_DEPTS = ["원무과", "물리치료실", "영상의학과", "심사과", "외래", "진단검사"]
 
-        if user_dept in TOYEONCHA_DEPTS:
-
+        if selected_dept in TOYEONCHA_DEPTS:
             # (1) 토연차는 토요일만 가능
             if vac_type == "토연차" and weekday != 5:
                 return jsonify({
                     "status": "error",
-                    "message": f"{user_dept}의 '토연차'는 토요일에만 사용할 수 있습니다."
+                    "message": f"{selected_dept}의 '토연차'는 토요일에만 사용할 수 있습니다."
                 }), 200
 
             # (2) 토요일은 토연차만 가능 (근무자는 예외)
             if weekday == 5 and vac_type not in ["토연차", "근무자"]:
                 return jsonify({
                     "status": "error",
-                    "message": f"{user_dept}는 토요일에 '토연차'만 사용할 수 있습니다."
+                    "message": f"{selected_dept}는 토요일에 '토연차'만 사용할 수 있습니다."
                 }), 200
+
+        # =======================================================
+        # ✅ 대상자 결정 (의료진/일반 부서 공통)
+        # =======================================================
+        # 기본: 본인
+        target_user = current_user
+
+        if selected_dept == "의료진":
+            # 타부서 일반직원은 의료진 등록 불가
+            if (user_dept != "의료진") and (not (current_user.is_admin or current_user.is_superadmin)):
+                return jsonify({"status": "error", "message": "의료진 일정 등록 권한이 없습니다."}), 200
+
+            # 타부서 관리자/총관리자는 의료진 선택 필수
+            if target_name:
+                target_user = User.query.filter(
+                    func.trim(User.department) == "의료진",
+                    or_(
+                        func.trim(User.first_name) == target_name,
+                        func.trim(User.name) == target_name
+                    )
+                ).first()
+                if not target_user:
+                    return jsonify({"status": "error", "message": "선택한 의료진을 찾을 수 없습니다."}), 200
+            else:
+                # 의료진 소속이면 본인 등록 허용, 타부서 관리자는 선택 강제
+                if user_dept != "의료진":
+                    return jsonify({"status": "error", "message": "의료진을 선택해주세요."}), 200
+                target_user = current_user
+        else:
+            # 의료진이 아닌 부서에서 관리자가 target_name 지정하는 경우: 선택부서에서 찾기
+            if target_name and (current_user.is_admin or current_user.is_superadmin):
+                tu = User.query.filter(
+                    func.trim(User.department) == selected_dept,
+                    or_(
+                        func.trim(User.first_name) == target_name,
+                        func.trim(User.name) == target_name
+                    )
+                ).first()
+                if not tu:
+                    return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 200
+                target_user = tu
 
         # =======================================================
         #  🟦 근무자 지정 (근무자 → 항상 바로 승인)
@@ -113,7 +186,7 @@ def add_event():
 
                 exists = Vacation.query.filter_by(
                     name=name,
-                    department=user_dept,
+                    department=selected_dept,
                     start_date=start_date,
                     type="근무자"
                 ).first()
@@ -123,8 +196,9 @@ def add_event():
 
                 new_worker = Vacation(
                     user_id=current_user.id,
+                    target_user_id=None,
                     name=name,
-                    department=user_dept,
+                    department=selected_dept,
                     start_date=start_date,
                     end_date=end_date,
                     type="근무자",
@@ -137,57 +211,78 @@ def add_event():
             return jsonify({
                 "status": "success",
                 "message": f"{added_count}명 근무자 등록 완료"
-            })
+            }), 200
 
         # =======================================================
-        #  🟦 휴가 중복 검사
+        #  🟦 휴가 중복 검사 (대상자 기준 + 부서 기준)
         # =======================================================
-        if current_user.is_admin or current_user.is_superadmin:
-            name_to_check = target_name or user_name
-        else:
-            name_to_check = user_name
-
         overlap = Vacation.query.filter(
-            Vacation.name == name_to_check,
-            Vacation.department == user_dept,
+            Vacation.department == selected_dept,
             Vacation.type != "탄력근무",
             Vacation.start_date <= end_date,
-            Vacation.end_date >= start_date
+            Vacation.end_date >= start_date,
+            Vacation.target_user_id == target_user.id
         ).first()
+
+        # 기존 데이터 중 target_user_id가 NULL로 저장된 예전 기록과도 충돌 체크(이름 기준 보완)
+        if not overlap:
+            overlap = Vacation.query.filter(
+                Vacation.department == selected_dept,
+                Vacation.type != "탄력근무",
+                Vacation.start_date <= end_date,
+                Vacation.end_date >= start_date,
+                Vacation.name == (target_user.first_name or target_user.name or target_user.username)
+            ).first()
 
         if overlap:
             return jsonify({
                 "status": "error",
-                "message": f"{name_to_check}님은 이미 같은 날짜에 '{overlap.type}' 일정이 있습니다."
+                "message": f"{target_user.name or target_user.username}님은 이미 같은 날짜에 '{overlap.type}' 일정이 있습니다."
             }), 200
 
         # =======================================================
-        #  🟦 휴가 등록 (미승인/승인 여부 자동 결정)
+        #  🟦 승인 여부 자동 결정 (의료진 규칙 반영)
         # =======================================================
-        approved_status = current_user.is_admin or current_user.is_superadmin
+        if selected_dept == "의료진":
+            if vac_type == "일정":
+                approved_status = True  # ✅ 일정은 즉시 등록
+            elif current_user.is_superadmin:
+                approved_status = True
+            elif (user_dept == "의료진") and current_user.is_admin:
+                approved_status = True
+            else:
+                approved_status = False  # ✅ 의료진 중간관리자 승인 대기
+        else:
+            approved_status = current_user.is_admin or current_user.is_superadmin
 
+        # =======================================================
+        #  🟦 휴가 등록
+        # =======================================================
         new_event = Vacation(
-            user_id=current_user.id,
-            name=target_name or user_name,
-            department=user_dept,
+            user_id=target_user.id,           # ✅ 대상자(실제 일정의 주인)
+            target_user_id=target_user.id,  # ✅ 대상자(실제 의료진/직원)
+            name=target_user.first_name or target_user.name or target_user.username,
+            department=selected_dept,
             start_date=start_date,
             end_date=end_date,
             type=vac_type,
             approved=approved_status
         )
 
-        # 관리자가 다른 직원에게 부여한 경우
-        if target_name and (current_user.is_admin or current_user.is_superadmin):
-            target_user = User.query.filter_by(name=target_name, department=user_dept).first()
-            if target_user:
-                new_event.target_user_id = target_user.id
+        # ✅ 일정이면 메모/시간 저장 (Vacation 모델 컬럼 있어야 함)
+        if vac_type == "일정":
+            new_event.memo = memo or None
+            new_event.start_time = start_time
+            new_event.end_time = end_time
         else:
-            target_user = current_user
+            new_event.memo = None
+            new_event.start_time = None
+            new_event.end_time = None
 
         db.session.add(new_event)
 
         # =======================================================
-        # 🟦 연차 차감 (대체연차 우선)
+        # 🟦 연차 차감 (대체연차 우선)  *일정은 0이라 영향 없음*
         # =======================================================
         deduction = DEDUCTION_MAP.get(vac_type, 0)
 
@@ -208,9 +303,15 @@ def add_event():
 
         db.session.commit()
 
+        msg_name = target_user.name or target_user.username
+        msg = f"{msg_name}님의 휴가가 등록되었습니다."
+        if selected_dept == "의료진" and vac_type != "일정" and (not approved_status):
+            msg = f"{msg_name}님의 휴가 신청이 등록되었습니다. (승인 대기)"
+
         return jsonify({
             "status": "success",
-            "message": f"{target_user.name or target_user.username}님의 휴가가 등록되었습니다."
+            "message": msg,
+            "approved": approved_status
         }), 200
 
     except Exception as e:
@@ -250,7 +351,10 @@ def delete_event(event_id):
         return blocked
 
     # 🔹 이 일정이 "나"의 일정인지 user_id 기준으로 확인
-    is_mine = (event.user_id == current_user.id)
+    is_mine = (
+        event.user_id == current_user.id
+        or (getattr(event, "target_user_id", None) == current_user.id)
+    )
 
     from app import db  # 파일 상단에 이미 있으면 이 줄은 생략해도 됨
 
