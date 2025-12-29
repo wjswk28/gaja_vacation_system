@@ -476,12 +476,13 @@ def toggle_admin(emp_id):
 @employee_bp.route("/signature/<path:filename>")
 @login_required
 def signature_file(filename):
-    if not current_user.is_superadmin:
+    if not (getattr(current_user, "is_superadmin", False) or getattr(current_user, "is_admin", False)):
         abort(403)
 
-    base_dir = current_app.config["STORAGE_ROOT"]
-    sig_dir = os.path.join(base_dir, "signatures")
+
+    sig_dir = current_app.config["SIGNATURES_FOLDER"]
     return send_from_directory(sig_dir, filename)
+
 
 # =====================================
 # 서명 이미지 업로드 (총관리자 전용)
@@ -503,8 +504,7 @@ def upload_signature():
     user = User.query.get_or_404(user_id)
 
     # 저장 폴더
-    base_dir = current_app.config["STORAGE_ROOT"]
-    sig_dir = os.path.join(base_dir, "signatures")
+    sig_dir = current_app.config["SIGNATURES_FOLDER"]
     os.makedirs(sig_dir, exist_ok=True)
 
     # 확장자 체크
@@ -551,8 +551,7 @@ def delete_employee(emp_id):
 
     # ✅ 서명 파일 삭제
     if emp.signature_image:
-        base_dir = current_app.config["STORAGE_ROOT"]
-        sig_dir = os.path.join(base_dir, "signatures")
+        sig_dir = current_app.config["SIGNATURES_FOLDER"]
         fname = emp.signature_image.split("/")[-1]
         fpath = os.path.join(sig_dir, fname)
         if os.path.exists(fpath):
@@ -577,8 +576,7 @@ def delete_signature(user_id):
 
     # 파일 삭제
     if user.signature_image:
-        base_dir = current_app.config["STORAGE_ROOT"]
-        sig_dir = os.path.join(base_dir, "signatures")
+        sig_dir = current_app.config["SIGNATURES_FOLDER"]
         fname = user.signature_image.split("/")[-1]
         fpath = os.path.join(sig_dir, fname)
         if os.path.exists(fpath):
