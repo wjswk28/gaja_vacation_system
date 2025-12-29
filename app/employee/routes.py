@@ -524,7 +524,12 @@ def upload_signature():
     save_path = os.path.join(sig_dir, new_name)
     file.save(save_path)
 
-    current_app.logger.info("SIGNATURE SAVED: %s (exists=%s, size=%s)", save_path, os.path.exists(save_path), os.path.getsize(save_path))
+    current_app.logger.info(
+        "✅ SIGNATURE SAVED: path=%s exists=%s size=%s",
+        save_path,
+        os.path.exists(save_path),
+        os.path.getsize(save_path) if os.path.exists(save_path) else -1
+    )
 
     # DB 저장 (파일명만 저장하는 방식 권장)
     user.signature_image = new_name
