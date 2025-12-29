@@ -37,7 +37,10 @@ def create_app():
     app.config["EXCEL_OUTPUT"] = os.path.join(STORAGE_ROOT, "excel_output")
     app.config["HOLIDAY_CACHE_DIR"] = os.path.join(STORAGE_ROOT, "holiday_cache")
 
-    for key in ["UPLOAD_FOLDER", "FORMS_FOLDER", "EXCEL_OUTPUT", "HOLIDAY_CACHE_DIR"]:
+    # ✅ 서명 폴더 추가 (Render 재시작해도 유지)
+    app.config["SIGNATURES_FOLDER"] = os.path.join(STORAGE_ROOT, "signatures")
+
+    for key in ["UPLOAD_FOLDER", "FORMS_FOLDER", "EXCEL_OUTPUT", "HOLIDAY_CACHE_DIR", "SIGNATURES_FOLDER"]:
         os.makedirs(app.config[key], exist_ok=True)
 
     # =============================
