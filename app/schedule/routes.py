@@ -262,67 +262,36 @@ def export_schedule(dept):
 
     if lk and lk.locked and lk.locked_by:
         signer = db.session.get(User, int(lk.locked_by))
-        sig = (getattr(signer, "signature_image", None) or "").strip() if signer else ""
+        sig_name = (getattr(signer, "signature_image", "") or "").strip() if signer else ""
 
-        sig_path = None
+        # ✅ DB에 "파일명만" 저장했다는 전제: /var/data(or instance)/signatures/<파일명>
+        sig_path = (
+            os.path.join(current_app.config["SIGNATURES_FOLDER"], sig_name)
+            if sig_name else None
+        )
 
-        def resolve_signature_path(sig_value: str):
-            if not sig_value:
-                return None
+        if sig_path and os.path.exists(sig_path):
+            try:
+                img = XLImage(sig_path)
 
-            s = sig_value.strip().strip('"').strip("'")
-            s = s.replace("\\", os.sep).replace("/", os.sep)
-            s = os.path.normpath(s)
+                # ✅ (선택) 표시 크기 고정: 칸 덮어 “늘어난 것처럼” 보이는 현상 줄이기
+                # 필요 없으면 주석처리 가능
+                img.width = 282
+                img.height = 60
 
-            if os.path.exists(s):
-                return s
+                ws.add_image(img, "AA3")
 
-            bases = []
-            storage_root = current_app.config.get("STORAGE_ROOT")
-            if storage_root:
-                bases.append(storage_root)
-            bases.append(current_app.instance_path)
-
-            parts = s.split(os.sep)
-            low = [p.lower() for p in parts]
-
-            if "instance" in low:
-                idx = low.index("instance")
-                tail = os.path.join(*parts[idx + 1:]) if idx + 1 < len(parts) else ""
-                if tail:
-                    p = os.path.join(current_app.instance_path, tail)
-                    if os.path.exists(p):
-                        return p
-
-            for base in bases:
-                p = os.path.join(base, s.lstrip(os.sep))
-                if os.path.exists(p):
-                    return p
-
-                if "signatures" in low:
-                    idx = low.index("signatures")
-                    tail = os.path.join(*parts[idx:])
-                    p2 = os.path.join(base, tail)
-                    if os.path.exists(p2):
-                        return p2
-
-                p3 = os.path.join(base, "signatures", os.path.basename(s))
-                if os.path.exists(p3):
-                    return p3
-
-            return None
-
-        sig_path = resolve_signature_path(sig)
-
-        if sig_path:
-            img = XLImage(sig_path)
-            ws.add_image(img, "AA3")
+            except Exception as e:
+                # ✅ Pillow 미설치/이미지 손상 등으로 500 터지는 걸 방지
+                current_app.logger.exception(
+                    "SIGNATURE INSERT FAILED: dept=%s y=%s m=%s locked_by=%s sig=%s path=%s err=%s",
+                    dept_key, year, month, lk.locked_by, sig_name, sig_path, repr(e)
+                )
         else:
             current_app.logger.warning(
-                "Month locked but signature file missing. dept=%s %04d-%02d locked_by=%s sig=%s",
-                dept_key, year, month, lk.locked_by, sig
+                "Month locked but signature file missing. dept=%s %04d-%02d locked_by=%s sig=%s path=%s",
+                dept_key, year, month, lk.locked_by, sig_name, sig_path
             )
-
 
     # ====== 파일 저장 후 전송 ======
     output = io.BytesIO()
