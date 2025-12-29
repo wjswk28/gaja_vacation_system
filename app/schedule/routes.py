@@ -276,8 +276,8 @@ def export_schedule(dept):
 
                 # ✅ (선택) 표시 크기 고정: 칸 덮어 “늘어난 것처럼” 보이는 현상 줄이기
                 # 필요 없으면 주석처리 가능
-                img.width = 282
-                img.height = 60
+                img.width = 115
+                img.height = 64
 
                 ws.add_image(img, "AA3")
 
