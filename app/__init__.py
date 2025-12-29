@@ -14,20 +14,26 @@ def create_app():
     app = Flask(__name__)
 
     # =============================
-    # 🔹 BASE & RENDER 환경 설정
+    # 🔹 BASE & 저장소(STORAGE_ROOT) 설정
+    # - Render 재시작에도 남기려면 /var/data 사용
+    # - 환경변수 STORAGE_ROOT가 있으면 그걸 최우선
     # =============================
     BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-    IS_RENDER = os.environ.get("RENDER_PLATFORM") == "true"
 
-    if IS_RENDER:
-        STORAGE_ROOT = "/var/data"
-    else:
-        STORAGE_ROOT = os.path.join(BASE_DIR, "..", "instance")
+    # ✅ Render 디스크가 마운트되면 /var/data 폴더가 실제로 존재함
+    IS_RENDER = os.path.exists("/var/data")
+
+    STORAGE_ROOT = (
+        os.environ.get("STORAGE_ROOT")
+        or ("/var/data" if IS_RENDER else os.path.join(BASE_DIR, "..", "instance"))
+    )
 
     os.makedirs(STORAGE_ROOT, exist_ok=True)
-
-    # 👉 여기 반드시 있어야 한다!
     app.config["STORAGE_ROOT"] = STORAGE_ROOT
+
+    print("✅ STORAGE_ROOT:", STORAGE_ROOT)
+    print("✅ SIGNATURES_FOLDER:", os.path.join(STORAGE_ROOT, "signatures"))
+
 
     # =============================
     # 폴더 설정
