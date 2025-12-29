@@ -20,19 +20,15 @@ def create_app():
     # =============================
     BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
-    # ✅ Render 디스크가 마운트되면 /var/data 폴더가 실제로 존재함
-    IS_RENDER = os.path.exists("/var/data")
-
-    STORAGE_ROOT = (
-        os.environ.get("STORAGE_ROOT")
-        or ("/var/data" if IS_RENDER else os.path.join(BASE_DIR, "..", "instance"))
-    )
+    # ✅ Render 디스크가 실제로 있으면 무조건 /var/data 사용 (환경변수 의존 X)
+    if os.path.exists("/var/data"):
+        STORAGE_ROOT = "/var/data"
+    else:
+        STORAGE_ROOT = os.path.join(BASE_DIR, "..", "instance")
 
     os.makedirs(STORAGE_ROOT, exist_ok=True)
     app.config["STORAGE_ROOT"] = STORAGE_ROOT
-
     print("✅ STORAGE_ROOT:", STORAGE_ROOT)
-    print("✅ SIGNATURES_FOLDER:", os.path.join(STORAGE_ROOT, "signatures"))
 
 
     # =============================
