@@ -104,6 +104,11 @@
                     <i data-lucide="gift" class="w-4 h-4"></i>
                     <span>생일자</span>
                 </a>
+                <a href="{{ url_for('vacation_form.index') }}"
+                  class="flex items-center gap-1 hover:text-sky-200 transition-colors">
+                    <i data-lucide="file-text" class="w-4 h-4"></i>
+                    <span>휴가계</span>
+                </a>
             {% endif %}
             {% endif %}
             {% if current_user.is_admin and not current_user.is_superadmin %}
@@ -171,6 +176,11 @@
                 class="flex flex-col items-center hover:text-sky-600 transition">
                 <i data-lucide="gift" class="w-5 h-5"></i>
                 <span>생일</span>
+            </a>
+            <a href="{{ url_for('vacation_form.index') }}" 
+              class="flex flex-col items-center hover:text-sky-600 transition">
+                <i data-lucide="file-text" class="w-5 h-5"></i>
+                <span>휴가</span>
             </a>
             {% endif %}
 
