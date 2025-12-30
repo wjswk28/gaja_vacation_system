@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="max-w-6xl mx-auto bg-white rounded-2xl shadow-lg border border-sky-100
+            py-4 px-4 md:px-6 mt-[0px] sm:mt-[8px] md:mt-[8px]">
+
+  <!-- ✅ 통일된 섹션 타이틀 스타일 -->
+  <div class="flex items-center justify-center md:justify-start gap-2 mb-4">
+    <i data-lucide="file-text" class="w-6 h-6 text-sky-700"></i>
+    <span class="text-sky-800 font-bold text-xl md:text-2xl">휴가계</span>
+  </div>
+
+  <!-- ✅ 결재 라인 버튼 (부서 카드 그리드 위) -->
+  <div class="mb-5">
+    <!-- 병원장 -->
+    <div class="flex justify-center md:justify-start mb-3">
+      <button type="button"
+              data-approver="병원장"
+              class="px-6 py-3 rounded-2xl
+                    bg-white border border-sky-200
+                    text-sky-800 font-extrabold
+                    text-base md:text-lg
+                    hover:bg-sky-50 hover:border-sky-300
+                    transition">
+        병원장
+      </button>
+    </div>
+
+    <!-- 행정부장 / 간호부장 -->
+    <div class="flex flex-wrap justify-center md:justify-start gap-3">
+      <button type="button"
+              data-approver="행정부장"
+              class="px-6 py-3 rounded-2xl
+                    bg-white border border-sky-200
+                    text-sky-800 font-extrabold
+                    text-base md:text-lg
+                    hover:bg-sky-50 hover:border-sky-300
+                    transition">
+        행정부장
+      </button>
+
+      <button type="button"
+              data-approver="간호부장"
+              class="px-6 py-3 rounded-2xl
+                    bg-white border border-sky-200
+                    text-sky-800 font-extrabold
+                    text-base md:text-lg
+                    hover:bg-sky-50 hover:border-sky-300
+                    transition">
+        간호부장
+      </button>
+    </div>
+  </div>
+
+
+  <!-- ✅ 부서 카드 그리드 (대체연차 부여 페이지처럼) -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    {% for item in dept_map %}
+      <div class="bg-sky-50/50 border border-sky-100 rounded-2xl p-4 min-h-[220px]">
+
+        <!-- ✅ 부서명도 버튼 형식 -->
+        <div class="flex justify-center">
+          <button type="button"
+                  class="inline-flex items-center justify-center
+                        px-6 py-2 rounded-xl
+                        bg-white border border-sky-200
+                        text-sky-800 font-extrabold
+                        text-base
+                        hover:bg-sky-50 transition">
+            {{ item.dept }}
+          </button>
+        </div>
+
+        <!-- ✅ 부서원 버튼들 -->
+        <div class="mt-3 flex flex-wrap gap-2">
+          {% if item.members and item.members|length > 0 %}
+            {% for m in item.members %}
+              <button type="button"
+                      class="px-3 py-1.5 rounded-lg
+                             bg-white border border-sky-200
+                             text-slate-700 text-sm
+                             hover:bg-sky-50 hover:border-sky-300
+                             transition">
+                {{ m.name }}
+              </button>
+            {% endfor %}
+          {% else %}
+            <span class="text-xs text-slate-400">등록된 직원 없음</span>
+          {% endif %}
+        </div>
+
+      </div>
+    {% endfor %}
+  </div>
+
+</div>
+
+{% endblock %}
