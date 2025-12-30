@@ -5,6 +5,7 @@ from flask_login import login_required, current_user
 
 from app.models import User  # ✅ models.py에 User 모델 존재
 from . import vacation_form_bp
+from datetime import date, datetime
 
 
 # ✅ 휴가계 페이지에서 사용할 부서 목록
@@ -25,24 +26,37 @@ def _display_name(u: User) -> str:
     return (u.first_name or u.name or u.username or "").strip()
 
 
+def _join_date_key(v: str):
+    """
+    join_date가 문자열이라 안전하게 파싱해서 정렬 키로 사용.
+    형식이 이상하거나 없으면 맨 뒤로 보냄.
+    """
+    s = (v or "").strip()
+    if not s:
+        return date.max
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return date.max
+
+
+def _display_name(u: User) -> str:
+    return (u.first_name or u.name or u.username or "").strip()
+
+
 @vacation_form_bp.route("/", methods=["GET"])
 @login_required
 def index():
-    # ✅ 총관리자 전용 (원하면 is_admin까지 허용으로 변경 가능)
     if not getattr(current_user, "is_superadmin", False):
         abort(403)
 
     dept_map = []
-
     for dept in DEPARTMENTS:
         users = User.query.filter_by(department=dept).all()
 
-        # ✅ 한글 이름 정렬 안정적으로 (name/first_name/username 혼재 대비)
-        users.sort(key=lambda x: _display_name(x))
+        # ✅ 입사일(빠른 순) → 이름(가나다)
+        users.sort(key=lambda u: (_join_date_key(getattr(u, "join_date", None)), _display_name(u)))
 
-        dept_map.append({
-            "dept": dept,
-            "members": users,
-        })
+        dept_map.append({"dept": dept, "members": users})
 
     return render_template("vacation_form/index.html", dept_map=dept_map)
