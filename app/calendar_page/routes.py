@@ -33,6 +33,7 @@ def calendar_page():
     # 기본 부서 목록 (고정값)
     base_departments = [
         "의료진",
+        "임원진",
         "수술실",
         "물리치료",
         "도수",
