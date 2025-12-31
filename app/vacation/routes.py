@@ -187,6 +187,10 @@ def add_event():
                     return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 200
                 target_user = tu
 
+        # ✅ 표시용 이름 통일 (근무표/리스트에서 흔들리지 않게)
+        display_name = (target_user.name or target_user.first_name or target_user.username or "").strip()
+
+
         # =======================================================
         #  🟦 근무자 지정 (근무자 → 항상 바로 승인)
         # =======================================================
@@ -245,7 +249,7 @@ def add_event():
                 Vacation.type != "탄력근무",
                 Vacation.start_date <= end_date,
                 Vacation.end_date >= start_date,
-                Vacation.name == (target_user.first_name or target_user.name or target_user.username)
+                Vacation.name == display_name
             ).first()
 
         if overlap:
@@ -275,7 +279,7 @@ def add_event():
         new_event = Vacation(
             user_id=target_user.id,           # ✅ 대상자(실제 일정의 주인)
             target_user_id=target_user.id,  # ✅ 대상자(실제 의료진/직원)
-            name=target_user.first_name or target_user.name or target_user.username,
+            name=display_name,
             department=selected_dept,
             start_date=start_date,
             end_date=end_date,
@@ -317,7 +321,7 @@ def add_event():
 
         db.session.commit()
 
-        msg_name = target_user.name or target_user.username
+        msg_name = display_name or (target_user.name or target_user.username)
         msg = f"{msg_name}님의 휴가가 등록되었습니다."
         if selected_dept == "의료진" and vac_type != "일정" and (not approved_status):
             msg = f"{msg_name}님의 휴가 신청이 등록되었습니다. (승인 대기)"
@@ -458,7 +462,7 @@ def approve_vacation(vac_id):
 
     vac = Vacation.query.get(vac_id)
     
-        # ✅ 중간관리자면 자기 부서만 승인 가능
+    # ✅ 중간관리자면 자기 부서만 승인 가능
     if current_user.is_admin and (not current_user.is_superadmin):
         if (vac.department or "").strip() != (current_user.department or "").strip():
             return jsonify({"status": "error", "message": "다른 부서 일정은 승인할 수 없습니다."}), 403
@@ -538,11 +542,13 @@ def add_flex_event():
     ).first()
     if exists:
         return jsonify({"status": "error", "message": "이미 해당 날짜에 탄력근무가 있습니다."}), 200
-
+    
+    display_name = (target_user.name or target_user.first_name or target_user.username or "").strip()
+    
     flex_event = Vacation(
         user_id=target_user.id,
         target_user_id=target_user.id,
-        name=target_user.first_name or target_user.name or target_user.username,
+        name=display_name,
         department=target_user.department,
         type="탄력근무",
         start_date=date_obj,
