@@ -173,14 +173,20 @@ def export_schedule(dept):
             # end_date가 같은 달이면 표시되게 하고 싶다면 여기 로직 확장 가능
             continue
 
-        # ✅ 근무자는 name 기반(현재 데이터 구조 유지)
+        # ✅ 근무자도 user_id 기반으로 행 찾기 (뒤죽박죽 방지)
         if e.type == "근무자":
-            idx = find_name_index((e.name or "").strip(), names)
+            uid = getattr(e, "target_user_id", None) or getattr(e, "user_id", None)
+            idx = id_to_idx.get(uid)
+
+            # ✅ 과거 데이터(이름만 저장된 근무자) 호환
+            if idx is None:
+                idx = find_name_index((e.name or "").strip(), names)
+
         else:
             # ✅ 휴가는 user_id 기반 (표시/합계 기준 통일)
             idx = id_to_idx.get(getattr(e, "user_id", None))
 
-            # (선택) 예전 데이터에 user_id가 비어있으면 name으로 fallback
+            # ✅ 예전 데이터에 user_id가 비어있거나 name만 있는 경우 fallback
             if idx is None:
                 idx = find_name_index((e.name or "").strip(), names)
 
