@@ -81,6 +81,9 @@ def export_schedule(dept):
         .all()
     )
     names = [e.name.strip() for e in employees]
+    
+    # ✅ 추가: user_id -> 근무표 행 index
+    id_to_idx = {u.id: i for i, u in enumerate(employees)}
 
     # ====== 행 복제 ======
     template_row = 8
@@ -162,10 +165,22 @@ def export_schedule(dept):
 
     # ====== 이벤트 덮어쓰기 ======
     for e in events:
+        # ✅ 월이 겹치는지(범위 포함) 체크
         if e.start_date.year != year or e.start_date.month != month:
-            continue
+            # end_date가 같은 달이면 표시되게 하고 싶다면 여기 로직 확장 가능
+            pass
 
-        idx = find_name_index(e.name.strip(), names)
+        # ✅ 근무자는 name 기반(현재 데이터 구조 유지)
+        if e.type == "근무자":
+            idx = find_name_index((e.name or "").strip(), names)
+        else:
+            # ✅ 휴가는 user_id 기반 (표시/합계 기준 통일)
+            idx = id_to_idx.get(getattr(e, "user_id", None))
+
+            # (선택) 예전 데이터에 user_id가 비어있으면 name으로 fallback
+            if idx is None:
+                idx = find_name_index((e.name or "").strip(), names)
+
         if idx is None:
             continue
 
