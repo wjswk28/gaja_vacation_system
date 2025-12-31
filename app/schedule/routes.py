@@ -171,15 +171,19 @@ def export_schedule(dept):
         # ✅ 월이 겹치는지(범위 포함) 체크
         if e.start_date.year != year or e.start_date.month != month:
             continue
-
+            
         # ✅ 근무자: 레거시 데이터(user_id가 등록자일 수 있음) 때문에 name을 먼저 신뢰
         if e.type == "근무자":
             idx = find_name_index((e.name or "").strip(), names)
 
-            # name으로 못 찾으면 id로 fallback
+            # ✅ name으로 못 찾으면 "target_user_id가 있는 경우만" id로 fallback
             if idx is None:
-                uid = getattr(e, "target_user_id", None) or getattr(e, "user_id", None)
-                idx = id_to_idx.get(uid)
+                tuid = getattr(e, "target_user_id", None)
+                if tuid:
+                    idx = id_to_idx.get(tuid)
+                else:
+                    # ✅ 퇴사자/매칭불가/레거시(등록자 user_id만 있는 것)는 스킵
+                    continue
 
         # ✅ 휴가류: user_id 우선 (표시/합계 기준 통일)
         else:
