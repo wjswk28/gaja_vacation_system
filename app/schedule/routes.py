@@ -1,6 +1,6 @@
 from flask import request, jsonify, send_file, current_app
 from flask_login import login_required
-from datetime import datetime
+from datetime import datetime, date
 from app.schedule import schedule_bp
 from app.models import User, Vacation, MonthLock
 from app.schedule.utils import (
@@ -73,7 +73,6 @@ def export_schedule(dept):
             ws.cell(row=7, column=col).fill = PatternFill(
                 start_color="FFB0B0", end_color="FFB0B0", fill_type="solid"
             )
-
     # ====== 직원 목록 ======
     employees = (
         User.query.filter_by(department=dept)
@@ -156,10 +155,14 @@ def export_schedule(dept):
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
     # ====== 승인된 일정 불러오기 ======
+    first_date = date(year, month, 1)
+    last_date = date(year, month, last_day)
+
     events = (
         Vacation.query.filter_by(department=dept)
         .filter(Vacation.approved == True)
         .filter(Vacation.type != "탄력근무")
+        .filter(Vacation.start_date >= first_date, Vacation.start_date <= last_date)
         .all()
     )
 
@@ -168,7 +171,7 @@ def export_schedule(dept):
         # ✅ 월이 겹치는지(범위 포함) 체크
         if e.start_date.year != year or e.start_date.month != month:
             # end_date가 같은 달이면 표시되게 하고 싶다면 여기 로직 확장 가능
-            pass
+            continue
 
         # ✅ 근무자는 name 기반(현재 데이터 구조 유지)
         if e.type == "근무자":
