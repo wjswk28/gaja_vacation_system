@@ -198,27 +198,44 @@ def add_event():
             names_to_add = worker_names if worker_names else [single_worker]
             added_count = 0
 
-            for name in names_to_add:
+            for raw_name in names_to_add:
+                name = (raw_name or "").strip()
                 if not name:
                     continue
 
-                exists = Vacation.query.filter_by(
-                    name=name,
-                    department=selected_dept,
-                    start_date=start_date,
-                    type="근무자"
+                # ✅ 근무하는 사람을 DB에서 정확히 찾기 (선택부서에서만)
+                worker_user = User.query.filter(
+                    func.trim(User.department) == selected_dept,
+                    or_(
+                        func.trim(User.name) == name,
+                        func.trim(User.first_name) == name
+                    )
                 ).first()
 
+                if not worker_user:
+                    # 필요하면 여기서 return error로 바꿔도 됨
+                    continue
+
+                worker_display = (worker_user.name or worker_user.first_name or worker_user.username or "").strip()
+
+                # ✅ 중복 방지: "사람(id) + 날짜 + 근무자" 기준으로 체크
+                exists = Vacation.query.filter_by(
+                    department=selected_dept,
+                    type="근무자",
+                    start_date=start_date,
+                    target_user_id=worker_user.id
+                ).first()
                 if exists:
                     continue
 
+                # ✅ 핵심: 근무자 본인 id로 저장
                 new_worker = Vacation(
-                    user_id=current_user.id,
-                    target_user_id=None,
-                    name=name,
+                    user_id=worker_user.id,          # ✅ 근무자 본인
+                    target_user_id=worker_user.id,   # ✅ 근무자 본인
+                    name=worker_display,             # ✅ 표준 이름
                     department=selected_dept,
                     start_date=start_date,
-                    end_date=end_date,
+                    end_date=start_date,             # ✅ 근무자는 하루 단위 권장
                     type="근무자",
                     approved=True
                 )
@@ -230,6 +247,7 @@ def add_event():
                 "status": "success",
                 "message": f"{added_count}명 근무자 등록 완료"
             }), 200
+
 
         # =======================================================
         #  🟦 휴가 중복 검사 (대상자 기준 + 부서 기준)
