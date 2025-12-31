@@ -322,8 +322,18 @@ def export_schedule(dept):
     wb.save(output)
     output.seek(0)
 
-    return send_file(
-        output,
-        as_attachment=True,
-        download_name=f"{dept}_근무표_{year}_{month:02d}.xlsx"
-    )
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{dept}_근무표_{year}_{month:02d}_{stamp}.xlsx"
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    resp = send_file(output, as_attachment=True, download_name=filename)
+
+    # ✅ 캐시 방지 헤더(선택이지만 추천)
+    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
