@@ -86,7 +86,7 @@ class NewHireChecklist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     department = db.Column(db.String(50))       # 관리자의 부서 기준
     items = db.Column(db.Text)                  # 체크 항목 JSON
-
+    
 
 class AltLeaveLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
