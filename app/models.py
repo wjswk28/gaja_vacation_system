@@ -31,18 +31,7 @@ class User(UserMixin, db.Model):
     is_superadmin = db.Column(db.Boolean, default=False)
     alt_leave = db.Column(db.Float, default=0)    # 부여된 대체연차 일수
     signature_image = db.Column(db.String(255), nullable=True)   #서명 파일
-
-        # ✅ NEW: 재직 상태 / 휴가계 대상자 / 퇴사일 (휴가계 전원 기준용)
-    # - employment_status: '재직' | '휴직' | '퇴사'
-    employment_status = db.Column(db.String(10), default="재직", nullable=False)
-    status_changed_at = db.Column(db.Date, nullable=True)  # 상태 변경일(선택)
-    resign_date = db.Column(db.Date, nullable=True)        # 퇴사일(선택)
-
-    # ✅ NEW: 휴가계 대상자 여부(기본 True)
-    is_vacation_form_target = db.Column(db.Boolean, default=True, nullable=False)
-
-    # ✅ NEW: join_date(문자열)과 별개로 Date 타입(안전 마이그레이션)
-    join_date_date = db.Column(db.Date, nullable=True)
+    
     
     @property
     def total_alt_leave(self):
@@ -86,7 +75,7 @@ class NewHireChecklist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     department = db.Column(db.String(50))       # 관리자의 부서 기준
     items = db.Column(db.Text)                  # 체크 항목 JSON
-    
+
 
 class AltLeaveLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -112,79 +101,6 @@ class MonthLock(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("department", "year", "month", name="uq_month_lock"),
-    )
-
-# =======================================================
-# ✅ 휴가계 확정/생성 흐름용 테이블들
-# - 1) 일반사용자: 월 Confirm(확인)
-# - 2) 중간관리자: 부서 최종확인
-# - 3) 총관리자: 휴가계 엑셀 생성/다운로드 관리
-# - (추가) 부서 월 대상자 스냅샷(명단 고정)
-# =======================================================
-
-class UserMonthConfirm(db.Model):
-    __tablename__ = "user_month_confirms"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
-    year = db.Column(db.Integer, nullable=False, index=True)
-    month = db.Column(db.Integer, nullable=False, index=True)
-    confirmed_at = db.Column(db.DateTime, default=now_kst, nullable=False)
-
-    __table_args__ = (
-        db.UniqueConstraint("user_id", "year", "month", name="uq_user_month_confirm"),
-    )
-
-
-class DeptMonthRoster(db.Model):
-    __tablename__ = "dept_month_rosters"
-    # ✅ 전원 기준을 '계산' 대신 '스냅샷'으로 고정하고 싶을 때 쓰는 테이블
-    # - (department, year, month)의 대상자 user_id 목록을 행(row)로 저장
-
-    id = db.Column(db.Integer, primary_key=True)
-    department = db.Column(db.String(50), nullable=False, index=True)
-    year = db.Column(db.Integer, nullable=False, index=True)
-    month = db.Column(db.Integer, nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
-    created_at = db.Column(db.DateTime, default=now_kst, nullable=False)
-
-    __table_args__ = (
-        db.UniqueConstraint("department", "year", "month", "user_id", name="uq_dept_month_roster"),
-    )
-
-
-class DeptMonthFinal(db.Model):
-    __tablename__ = "dept_month_finals"
-
-    id = db.Column(db.Integer, primary_key=True)
-    department = db.Column(db.String(50), nullable=False, index=True)
-    year = db.Column(db.Integer, nullable=False, index=True)
-    month = db.Column(db.Integer, nullable=False, index=True)
-
-    finalized_at = db.Column(db.DateTime, nullable=True)
-    finalized_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
-    note = db.Column(db.String(255), nullable=True)
-
-    __table_args__ = (
-        db.UniqueConstraint("department", "year", "month", name="uq_dept_month_final"),
-    )
-
-
-class DeptMonthExport(db.Model):
-    __tablename__ = "dept_month_exports"
-
-    id = db.Column(db.Integer, primary_key=True)
-    department = db.Column(db.String(50), nullable=False, index=True)
-    year = db.Column(db.Integer, nullable=False, index=True)
-    month = db.Column(db.Integer, nullable=False, index=True)
-
-    generated_at = db.Column(db.DateTime, nullable=True)
-    generated_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
-    file_path = db.Column(db.String(255), nullable=True)
-    file_version = db.Column(db.Integer, default=1, nullable=False)
-
-    __table_args__ = (
-        db.UniqueConstraint("department", "year", "month", name="uq_dept_month_export"),
     )
 
 # =====================
