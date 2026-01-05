@@ -187,6 +187,21 @@ class DeptMonthExport(db.Model):
         db.UniqueConstraint("department", "year", "month", name="uq_dept_month_export"),
     )
 
+class MonthSignToggle(db.Model):
+    __tablename__ = "month_sign_toggle"
+
+    id = db.Column(db.Integer, primary_key=True)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+
+    director_on = db.Column(db.Boolean, default=False)      # 병원장
+    admin_head_on = db.Column(db.Boolean, default=False)    # 행정부장
+    nurse_head_on = db.Column(db.Boolean, default=False)    # 간호부장
+
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint("year", "month", name="uq_month_sign_toggle"),)
+    
 # =====================
 # 로그인 user loader
 # =====================
