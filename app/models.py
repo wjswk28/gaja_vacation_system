@@ -201,6 +201,18 @@ class MonthSignToggle(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint("year", "month", name="uq_month_sign_toggle"),)
+
+class ApprovalRoleUser(db.Model):
+    __tablename__ = "approval_role_user"
+
+    id = db.Column(db.Integer, primary_key=True)
+    role = db.Column(db.String(30), unique=True, nullable=False)  
+    # "director" | "admin_head" | "nurse_head"
+
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    user = db.relationship("User")
+
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
 # =====================
 # 로그인 user loader
@@ -244,3 +256,5 @@ def init_master():
 
     db.session.commit()
     print("✅ 초기 데이터 세팅 완료 (master만 존재)")
+
+
