@@ -253,12 +253,7 @@ def employee_list():
 @employee_bp.route("/check_username")
 @login_required
 def check_username():
-    """
-    ?username=master 이런 식으로 GET 요청 보내서
-    해당 아이디가 이미 존재하는지 True/False 를 돌려준다.
-    엔드포인트 이름은 'employee.check_username' 이 된다.
-    """
-    username = request.args.get("username", "").strip()
+    username = request.args.get("username", "").strip().lower()
 
     if not username:
         return jsonify({"exists": False})
@@ -283,7 +278,7 @@ def employee_register():
     # POST: 실제 직원 등록 처리
     # =========================
     if request.method == "POST":
-        username   = request.form.get("username", "").strip()
+        username   = request.form.get("username", "").strip().lower()
         first_name = request.form.get("first_name", "").strip()
         last_name  = request.form.get("last_name", "").strip()
         department = request.form.get("department", "").strip()
