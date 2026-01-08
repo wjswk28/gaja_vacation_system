@@ -145,52 +145,7 @@ def add_event():
                     "status": "error",
                     "message": f"{selected_dept}는 토요일에 '토연차'만 사용할 수 있습니다."
                 }), 200
-
-        # =======================================================
-        # ✅ 대상자 결정 (의료진/일반 부서 공통)
-        # =======================================================
-        # 기본: 본인
-        target_user = current_user
-
-        if selected_dept == "의료진":
-            # 타부서 일반직원은 의료진 등록 불가
-            if (user_dept != "의료진") and (not (current_user.is_admin or current_user.is_superadmin)):
-                return jsonify({"status": "error", "message": "의료진 일정 등록 권한이 없습니다."}), 200
-
-            # 타부서 관리자/총관리자는 의료진 선택 필수
-            if target_name:
-                target_user = User.query.filter(
-                    func.trim(User.department) == "의료진",
-                    or_(
-                        func.trim(User.first_name) == target_name,
-                        func.trim(User.name) == target_name
-                    )
-                ).first()
-                if not target_user:
-                    return jsonify({"status": "error", "message": "선택한 의료진을 찾을 수 없습니다."}), 200
-            else:
-                # 의료진 소속이면 본인 등록 허용, 타부서 관리자는 선택 강제
-                if user_dept != "의료진":
-                    return jsonify({"status": "error", "message": "의료진을 선택해주세요."}), 200
-                target_user = current_user
-        else:
-            # 의료진이 아닌 부서에서 관리자가 target_name 지정하는 경우: 선택부서에서 찾기
-            if target_name and (current_user.is_admin or current_user.is_superadmin):
-                tu = User.query.filter(
-                    func.trim(User.department) == selected_dept,
-                    or_(
-                        func.trim(User.first_name) == target_name,
-                        func.trim(User.name) == target_name
-                    )
-                ).first()
-                if not tu:
-                    return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 200
-                target_user = tu
-
-        # ✅ 표시용 이름 통일 (근무표/리스트에서 흔들리지 않게)
-        display_name = (target_user.name or target_user.first_name or target_user.username or "").strip()
-
-
+            
         # =======================================================
         #  🟦 근무자 지정 (근무자 → 항상 바로 승인)
         # =======================================================
@@ -247,6 +202,54 @@ def add_event():
                 "status": "success",
                 "message": f"{added_count}명 근무자 등록 완료"
             }), 200
+        
+        # =======================================================
+        # ✅ 대상자 결정 (의료진/일반 부서 공통)
+        # =======================================================
+        # 기본: 본인
+        target_user = current_user
+
+        if selected_dept == "의료진":
+            # 타부서 일반직원은 의료진 등록 불가
+            if (user_dept != "의료진") and (not (current_user.is_admin or current_user.is_superadmin)):
+                return jsonify({"status": "error", "message": "의료진 일정 등록 권한이 없습니다."}), 200
+
+            # 타부서 관리자/총관리자는 의료진 선택 필수
+            if target_name:
+                target_user = User.query.filter(
+                    func.trim(User.department) == "의료진",
+                    or_(
+                        func.trim(User.first_name) == target_name,
+                        func.trim(User.name) == target_name
+                    )
+                ).first()
+                if not target_user:
+                    return jsonify({"status": "error", "message": "선택한 의료진을 찾을 수 없습니다."}), 200
+            else:
+                # ✅ 의료진 소속이면 본인 등록 허용
+                # ✅ 단, "근무자" 타입은 worker_names로 따로 처리하므로 여기서 막지 않음
+                if user_dept != "의료진" and vac_type != "근무자":
+                    return jsonify({"status": "error", "message": "의료진을 선택해주세요."}), 200
+                target_user = current_user
+        else:
+            # 의료진이 아닌 부서에서 관리자가 target_name 지정하는 경우: 선택부서에서 찾기
+            if target_name and (current_user.is_admin or current_user.is_superadmin):
+                tu = User.query.filter(
+                    func.trim(User.department) == selected_dept,
+                    or_(
+                        func.trim(User.first_name) == target_name,
+                        func.trim(User.name) == target_name
+                    )
+                ).first()
+                if not tu:
+                    return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 200
+                target_user = tu
+
+        # ✅ 표시용 이름 통일 (근무표/리스트에서 흔들리지 않게)
+        display_name = (target_user.name or target_user.first_name or target_user.username or "").strip()
+
+
+        
 
 
         # =======================================================
@@ -509,10 +512,10 @@ def approve_vacation(vac_id):
 @login_required
 def add_flex_event():
 
-    # ✅ 중간관리자만 허용 (총관리자/일반직원 금지)
-    if (not current_user.is_admin) or current_user.is_superadmin:
+    # ✅ 총관리자 / 중간관리자만 허용
+    if not (current_user.is_admin or current_user.is_superadmin):
         return jsonify({"status": "error", "message": "탄력근무 등록 권한이 없습니다."}), 403
-
+    
     data = request.get_json(silent=True) or {}
 
     target_name = (data.get("target_name") or "").strip()
@@ -533,9 +536,17 @@ def add_flex_event():
     except:
         return jsonify({"status": "error", "message": "시간값 오류"}), 400
 
-    # ✅ 타겟 직원 조회: '내 부서'에서만 찾기 (동명이인/타부서 방지)
+    # ✅ 총관리자면 payload의 department 기준 / 중간관리자는 본인 부서 고정
+    selected_dept = (data.get("department") or "").strip()
+    if not current_user.is_superadmin:
+        selected_dept = (current_user.department or "").strip()
+
+    if not selected_dept:
+        return jsonify({"status": "error", "message": "부서 정보가 없습니다."}), 400
+
+    # ✅ 타겟 직원 조회: 선택된 부서에서만 찾기 (동명이인/타부서 방지)
     target_user = User.query.filter(
-        func.trim(User.department) == func.trim(current_user.department),
+        func.trim(User.department) == func.trim(selected_dept),
         or_(
             func.trim(User.first_name) == target_name,
             func.trim(User.name) == target_name,
@@ -546,7 +557,7 @@ def add_flex_event():
         return jsonify({"status": "error", "message": "직원 정보 없음(같은 부서인지 확인)"}), 400
 
     # ✅ 확정(잠금)된 달이면 등록 불가 (총관리자만 가능하도록 되어있다면 그대로 적용)
-    blocked = _block_if_locked(target_user.department, date_obj)
+    blocked = _block_if_locked(selected_dept, date_obj)
     if blocked:
         return blocked
 
