@@ -12,7 +12,7 @@ from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
 import calendar
 from app.calendar_page import calendar_bp
-from app.models import Vacation, User, MonthLock
+from app.models import Vacation, User, MonthLock, UserMonthConfirm
 from app import db
 
 
@@ -142,7 +142,7 @@ def get_events():
     # 1) 전체 이벤트 불러오기
     all_events = Vacation.query.all()
     
-        # ✅ 내 이벤트인지 판별(일반휴가 기준)
+    # ✅ 내 이벤트인지 판별(일반휴가 기준)
     def _is_mine_event(ev):
         current_names = {
             (current_user.first_name or "").strip(),
@@ -165,16 +165,19 @@ def get_events():
         # -------------------------------
         if e.type == "탄력근무":
 
-            # 0) 총관리자는 탄력근무 절대 노출 금지
-            if current_user.is_superadmin:
-                continue
-
             # 1) 탄력근무의 소속 부서 판정 (DB department 우선, 없으면 대상자 부서로 보완)
             flex_dept = (getattr(e, "department", None) or "").strip()
             if not flex_dept and getattr(e, "target_user_id", None):
                 tu = User.query.get(e.target_user_id)
                 flex_dept = (tu.department if tu else "") or ""
             flex_dept = (flex_dept or "").strip()
+
+            # ✅ 총관리자: 선택한 부서의 탄력근무는 조회 가능(등록 확인용)
+            if current_user.is_superadmin:
+                if selected_dept and flex_dept != (selected_dept or "").strip():
+                    continue
+                filtered.append(e)
+                continue
 
             # 2) “선택한 캘린더 부서”가 내 부서가 아닐 때는 탄력근무는 안 섞이게 처리
             #    (의료진 캘린더에서 탄력근무가 떠버리는 것 방지)
@@ -371,6 +374,121 @@ def _can_confirm_target_month(year: int, month: int) -> bool:
     return start <= today <= end
 
 
+@calendar_bp.route("/users_by_dept")
+@login_required
+def users_by_dept():
+    # ✅ 총관리자만 사용
+    if not bool(getattr(current_user, "is_superadmin", False)):
+        return jsonify({"users": []}), 403
+
+    dept = (request.args.get("dept") or "").strip()
+    if not dept:
+        return jsonify({"users": []})
+
+    users = User.query.filter_by(department=dept).all()
+
+    def display_name(u: User) -> str:
+        return (u.first_name or u.name or u.username or "").strip()
+
+    # ✅ 정렬(이름 기준) - 원하면 join_date 기준으로 바꿔도 됨
+    users_sorted = sorted(users, key=lambda u: display_name(u))
+
+    return jsonify({
+        "users": [
+            {
+                "id": u.id,
+                "name": display_name(u),
+                "is_admin": bool(getattr(u, "is_admin", False)),   # 중간관리자 포함 여부 확인용(표시는 선택)
+            }
+            for u in users_sorted
+        ]
+    })
+
+
+@calendar_bp.route("/user_month_confirm/status")
+@login_required
+def user_month_confirm_status():
+    year = int(request.args.get("year"))
+    month = int(request.args.get("month"))
+
+    row = UserMonthConfirm.query.filter_by(
+        user_id=current_user.id, year=year, month=month
+    ).first()
+
+    return jsonify({
+        "confirmed": bool(row),
+        "confirmed_at": row.confirmed_at.isoformat() if (row and row.confirmed_at) else None,
+    })
+
+
+@calendar_bp.route("/user_month_confirm/confirm", methods=["POST"])
+@login_required
+def user_month_confirm():
+    data = request.get_json(silent=True) or {}
+    year = int(data.get("year"))
+    month = int(data.get("month"))
+    dept = (data.get("dept") or "").strip()  # 프론트에서 currentDept 보내줄 예정
+
+    # ✅ 확정 가능 기간은 관리자 확정과 "동일"하게 사용
+    if not _can_confirm_target_month(year, month):
+        return jsonify({"status": "error", "message": "확정은 해당 월의 29일 ~ 다음 달 4일에만 가능합니다."}), 400
+
+    # ✅ 일반사용자는 '내 부서 캘린더'에서만 개인확정 허용 (의료진 달력 보고 눌러버리는 실수 방지)
+    if (not current_user.is_superadmin) and dept:
+        my_dept = (current_user.department or "").strip()
+        if dept != my_dept:
+            return jsonify({"status": "error", "message": "개인 확정은 내 부서 캘린더에서만 가능합니다."}), 403
+
+        # (선택) 이미 부서가 잠겼으면 개인확정 의미가 없으니 막기
+        if _is_locked(dept, year, month):
+            return jsonify({"status": "error", "message": "이미 확정(잠금)된 달입니다."}), 400
+
+    row = UserMonthConfirm.query.filter_by(
+        user_id=current_user.id, year=year, month=month
+    ).first()
+
+    if not row:
+        row = UserMonthConfirm(user_id=current_user.id, year=year, month=month)
+
+    # 재확정 시각 갱신(원하면 유지)
+    row.confirmed_at = datetime.now()
+
+    db.session.add(row)
+    db.session.commit()
+
+    return jsonify({"status": "success", "message": f"{year}년 {month}월 개인 확정 완료"})
+
+@calendar_bp.route("/manager_month_confirm", methods=["POST"])
+@login_required
+def manager_month_confirm():
+    # ✅ 중간관리자만 (총관리자는 제외하고 싶으면 아래 조건 유지)
+    if not bool(getattr(current_user, "is_admin", False)) or bool(getattr(current_user, "is_superadmin", False)):
+        return jsonify({"status": "error", "message": "부서 관리자만 가능합니다."}), 403
+
+    data = request.get_json(silent=True) or {}
+    year = int(data.get("year"))
+    month = int(data.get("month"))
+    dept = (data.get("dept") or "").strip()
+
+    # ✅ 확정 가능 기간 동일 적용
+    if not _can_confirm_target_month(year, month):
+        return jsonify({"status": "error", "message": "확정은 해당 월의 29일 ~ 다음 달 4일에만 가능합니다."}), 400
+
+    # ✅ 내 부서에서만 허용
+    my_dept = (current_user.department or "").strip()
+    if dept and dept != my_dept:
+        return jsonify({"status": "error", "message": "내 부서 캘린더에서만 확정할 수 있습니다."}), 403
+
+    # ✅ (중요) 여기서는 잠금/서명 기능 절대 하지 않음 → 개인확정만
+    row = UserMonthConfirm.query.filter_by(user_id=current_user.id, year=year, month=month).first()
+    if not row:
+        row = UserMonthConfirm(user_id=current_user.id, year=year, month=month)
+
+    row.confirmed_at = datetime.now()
+    db.session.add(row)
+    db.session.commit()
+
+    return jsonify({"status": "success", "message": f"{year}년 {month}월 부서장 개인 확정 완료"})
 
 
 @calendar_bp.route("/month_lock/status")
@@ -395,7 +513,14 @@ def month_lock_status():
 @login_required
 def month_lock_confirm():
     # ✅ 중간관리자(관리자)만 “확정” 가능
-    is_admin = bool(getattr(current_user, "is_admin", False)) or (str(getattr(current_user, "department", "")).strip() == "관리자")
+    # ✅ 총관리자는 확정 불가(확정/잠금과 역할 충돌 방지)
+    if bool(getattr(current_user, "is_superadmin", False)):
+        return jsonify({"status": "error", "message": "총관리자는 부서 확정을 할 수 없습니다."}), 403
+
+    is_admin = bool(getattr(current_user, "is_admin", False)) or (
+        str(getattr(current_user, "department", "")).strip() == "관리자"
+    )
+
     if not is_admin:
         return jsonify({"status": "error", "message": "관리자만 확정할 수 있습니다."}), 403
 
@@ -475,7 +600,9 @@ def pending_requests(date):
     req_dept = (request.args.get("dept") or "").strip()
 
     if current_user.is_superadmin:
-        dept = req_dept or (session.get("department") or current_user.department or "")
+        if not req_dept:
+            return jsonify({"requests": []}), 400
+        dept = req_dept
     else:
         dept = (current_user.department or "").strip()
 
