@@ -140,19 +140,58 @@
     <!-- 🔹 날짜 표시 -->
     <p id="adminModalDate" class="text-sm text-slate-500 mb-3"></p>
 
+    {% if current_user.is_superadmin %}
+    <!-- ✅ 총관리자 전용: 대상 부서/직원 선택 -->
+    <div class="grid grid-cols-1 gap-2 mb-4 text-left">
+      <div>
+        <label class="text-sm text-slate-600">대상 부서</label>
+        <select id="superDeptSelect"
+          class="w-full mt-1 border border-sky-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none">
+          {% for d in dept_list %}
+            <option value="{{ d }}" {% if d == dept %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div id="superUserWrap">
+        <label class="text-sm text-slate-600">대상 직원</label>
+        <select id="superUserSelect"
+          class="w-full mt-1 border border-sky-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none">
+          <option value="" selected disabled>직원 선택</option>
+        </select>
+      </div>
+
+    </div>
+    {% endif %}
+
     <!-- 🟢 탭 1: 휴가 지정 -->
     <div id="vacationTab">
       <h3 class="text-base font-semibold mb-2">휴가 종류</h3>
-      {% if dept == "의료진" %}
+      {% if dept == "의료진" and not current_user.is_superadmin %}
         <div class="text-left mb-3">
           <label class="text-sm text-slate-600">의료진 선택</label>
-          <select id="medicalUser"
-            class="w-full mt-1 border border-sky-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:outline-none">
+          <select id="medicalUser" class="w-full mt-1 border border-sky-200 bg-white rounded-lg px-3 py-2 text-sm
+                                   focus:ring-2 focus:ring-sky-400 focus:outline-none">
             {% for name in user_names %}
               <option value="{{ name }}">{{ name }}</option>
             {% endfor %}
           </select>
         </div>
+      {% endif %}
+
+      {# ✅ 중간관리자(부서 관리자): 내 부서 캘린더에서만 직원 선택 드롭바 노출 #}
+      {% if current_user.is_admin and not current_user.is_superadmin and dept == user_dept and dept != "의료진" %}
+      <div class="text-left mb-3">
+          <label class="text-sm text-slate-600">직원 선택</label>
+          <select id="mgrUserSelect"
+          class="w-full mt-1 border border-sky-200 bg-white rounded-lg px-3 py-2 text-sm
+                  focus:ring-2 focus:ring-sky-400 focus:outline-none">
+          <option value="" selected disabled>직원 선택</option>
+          {% for name in user_names %}
+              <option value="{{ name }}">{{ name }}</option>
+          {% endfor %}
+          </select>
+      </div>
       {% endif %}
 
       <div class="flex flex-wrap justify-center gap-2 mb-4">
@@ -164,7 +203,7 @@
         <button class="vac-btn flex items-center justify-center bg-indigo-100 hover:bg-indigo-200 text-indigo-700 py-1 px-2 rounded" data-type="예비군">예비군</button>
         <button class="vac-btn flex items-center justify-center bg-purple-100 hover:bg-purple-200 text-purple-700 py-1 px-2 rounded" data-type="토연차">토연차</button>
       
-        {% if dept == "의료진" %}
+        {% if dept == "의료진" or current_user.is_superadmin %}
           <button class="vac-btn flex items-center justify-center bg-sky-100 hover:bg-sky-200 text-sky-700 py-1 px-2 rounded"
                   data-type="일정">일정</button>
         {% endif %}
@@ -198,13 +237,16 @@
     <!-- 🟠 탭 2: 근무자 지정 -->
     <div id="workerTab" class="hidden">
       <h3 class="text-base font-semibold mb-2">근무자 선택</h3>
-      <div class="grid grid-cols-2 gap-2 mb-3">
-        {% for name in user_names %}
-        <button class="worker-btn bg-blue-100 hover:bg-blue-200 text-blue-700 py-1 rounded" data-name="{{ name }}">
-          {{ name }}
-        </button>
-        {% endfor %}
-      </div>
+
+      {% if current_user.is_superadmin %}
+        <div id="superWorkerButtons" class="grid grid-cols-2 gap-2 mb-3"></div>
+      {% else %}
+        <div class="grid grid-cols-2 gap-2 mb-3">
+          {% for name in user_names %}
+          <button class="worker-btn ... " data-name="{{ name }}">{{ name }}</button>
+          {% endfor %}
+        </div>
+      {% endif %}
     </div>
 
     <!-- 🟣 탭 3: 탄력근무 -->
@@ -417,10 +459,12 @@ const currentDept = "{{ dept }}".trim();
 const isAdmin = ("{{ 'true' if current_user.is_admin or current_user.department.strip() == '관리자' else 'false' }}" === "true");
 const currentUserName = "{{ current_user.first_name or current_user.name or current_user.username }}";
 console.log("✅ isAdmin =", isAdmin, " / dept =", currentDept);
+const userDept = "{{ user_dept }}".trim();
 
 window.__isSuperadmin = ("{{ 'true' if current_user.is_superadmin else 'false' }}" === "true");
 window.__monthLocked = false;      // 현재 보고 있는 달 “확정(잠금)” 여부
 window.__canConfirmMonth = false;  // 1~5일 기간 여부(확정 버튼 활성 조건)
+window.__userConfirmed = false;  
 
 let selectedDate = null;
 let selectedType = null;
@@ -434,6 +478,101 @@ document.addEventListener("DOMContentLoaded", async function () {
   const adminModalDate = document.getElementById("adminModalDate");
   const saveAdminEvent = document.getElementById("saveAdminEvent");
   const closeAdminModal = document.getElementById("closeAdminModal");
+
+  const isSuperadmin = (window.__isSuperadmin === true);
+
+  // ✅ 총관리자 전용 요소
+  const superDeptSelect = document.getElementById("superDeptSelect");
+  const superUserSelect = document.getElementById("superUserSelect");
+
+  // ✅ 총관리자 근무자 버튼 컨테이너(아래 workerTab에서 id 부여할 예정)
+  const superWorkerBox = document.getElementById("superWorkerButtons");
+
+  async function loadUsersForDept(dept) {
+    const url = "{{ url_for('calendar.users_by_dept') }}";
+    const res = await axios.get(url, { params: { dept } });
+    return (res.data && res.data.users) ? res.data.users : [];
+  }
+
+  function fillUserSelect(selectEl, users) {
+    if (!selectEl) return;
+    selectEl.innerHTML = `<option value="" selected disabled>직원 선택</option>`;
+    users.forEach(u => {
+      const opt = document.createElement("option");
+      opt.value = u.name;
+      opt.textContent = u.name; // (원하면 u.is_admin 표시도 가능)
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function renderWorkerButtons(boxEl, users) {
+    if (!boxEl) return;
+    boxEl.innerHTML = "";
+    users.forEach(u => {
+      const btn = document.createElement("button");
+      btn.className = "worker-btn bg-blue-100 hover:bg-blue-200 text-blue-700 py-1 rounded";
+      btn.dataset.name = u.name;
+      btn.textContent = u.name;
+      boxEl.appendChild(btn);
+    });
+  }
+
+  async function refreshSuperadminUserUI() {
+
+  // ✅ 모달 openAdminModal(바깥 함수)에서도 호출할 수 있게 전역으로 노출
+    window._refreshSuperadminUserUI = refreshSuperadminUserUI;
+    if (!isSuperadmin) return;
+    const dept = (superDeptSelect?.value || "").trim();
+    const users = await loadUsersForDept(dept);
+
+    fillUserSelect(superUserSelect, users);
+    renderWorkerButtons(superWorkerBox, users);
+
+    // ✅ (추가) 탄력근무 탭: flexUser도 선택 부서 기준으로 갱신
+    const flexUser = document.getElementById("flexUser");
+    if (flexUser) {
+      // 1) 기존 옵션 완전 초기화 (이전 부서 직원이 남는 문제 해결)
+      flexUser.innerHTML = "";
+
+      // 2) placeholder 1개만 먼저 넣기
+      const ph = document.createElement("option");
+      ph.value = "";
+      ph.textContent = "직원 선택";
+      ph.disabled = true;
+      ph.selected = true;
+      flexUser.appendChild(ph);
+
+      // 3) 부서원이 있으면 옵션 추가, 없으면 placeholder만 남음
+      users.forEach(u => {
+        const opt = document.createElement("option");
+        opt.value = u.name;
+        opt.textContent = u.name;
+        flexUser.appendChild(opt);
+      });
+
+      // 4) 부서원 0명이면 드롭다운 비활성화(아무도 안 나와야 함)
+      flexUser.disabled = (users.length === 0);
+    }
+
+    // ✅ 부서가 의료진이 아니면 "일정" 버튼을 사실상 막기(선택해도 저장에서 막음)
+    // (UI에서 숨기고 싶으면 여기서 버튼 display 제어해도 됨)
+  }
+
+  if (isSuperadmin && superDeptSelect) {
+    // 최초 1회 로드
+    await refreshSuperadminUserUI();
+
+    // 부서 변경 시 갱신
+    superDeptSelect.addEventListener("change", async () => {
+      selectedWorkers = [];   // 근무자 선택 초기화
+
+      // ✅ (추가) 탄력근무 선택값도 초기화
+      const flexUser = document.getElementById("flexUser");
+      if (flexUser) flexUser.value = "";
+
+      await refreshSuperadminUserUI();
+    });
+  }
 
   // ✅ 탭 관련 요소
   const tabVacation = document.getElementById("tabVacation");
@@ -450,20 +589,23 @@ document.addEventListener("DOMContentLoaded", async function () {
     return;
   }
 
-  // ✅ 시간 옵션 채우기 (30분 단위)
+  // ✅ 시간 옵션 채우기 (30분 단위) - 09:00 ~ 18:00만
   function fillTimeOptions(selectEl) {
     if (!selectEl) return;
     selectEl.innerHTML = "";
-    for (let h = 0; h < 24; h++) {
-      for (let m = 0; m < 60; m += 30) {
-        const hh = String(h).padStart(2, "0");
-        const mm = String(m).padStart(2, "0");
-        const v = `${hh}:${mm}`;
-        const opt = document.createElement("option");
-        opt.value = v;
-        opt.textContent = v;
-        selectEl.appendChild(opt);
-      }
+
+    // 09:00(540분) ~ 18:00(1080분) inclusive, 30분 간격
+    for (let t = 9 * 60; t <= 18 * 60; t += 30) {
+      const h = Math.floor(t / 60);
+      const m = t % 60;
+      const hh = String(h).padStart(2, "0");
+      const mm = String(m).padStart(2, "0");
+      const v = `${hh}:${mm}`;
+
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      selectEl.appendChild(opt);
     }
   }
 
@@ -473,8 +615,8 @@ document.addEventListener("DOMContentLoaded", async function () {
   if (scheduleStart && scheduleEnd) {
     fillTimeOptions(scheduleStart);
     fillTimeOptions(scheduleEnd);
-    scheduleStart.value = "08:00";
-    scheduleEnd.value = "17:00";
+    scheduleStart.value = "09:00";
+    scheduleEnd.value = "18:00";
   }
 
   //공용 리셋 함수
@@ -497,58 +639,77 @@ document.addEventListener("DOMContentLoaded", async function () {
     const viewY = viewDate.getFullYear();
     const viewM = viewDate.getMonth() + 1;
 
+    // 1) 부서 잠금 상태
     try {
       const res = await axios.get("{{ url_for('calendar.month_lock_status') }}", {
         params: { dept: currentDept, year: viewY, month: viewM }
       });
-
-      // ✅ 서버 판단 그대로 사용
       window.__monthLocked = !!res.data.locked;
       window.__canConfirmMonth = !!res.data.can_confirm;
-
-      // 디버그(필요하면 유지)
-      console.log("[month_lock_status]", { viewY, viewM, ...res.data });
-
     } catch (e) {
-      console.error("month_lock_status error:", e);
       window.__monthLocked = false;
       window.__canConfirmMonth = false;
+    }
+
+    // 2) ✅ 개인 확정 상태(일반사용자용)
+    try {
+      const res2 = await axios.get("{{ url_for('calendar.user_month_confirm_status') }}", {
+        params: { year: viewY, month: viewM }
+      });
+      window.__userConfirmed = !!res2.data.confirmed;
+    } catch (e) {
+      window.__userConfirmed = false;
     }
 
     const btn = document.querySelector(".fc-confirmMonth-button");
     if (!btn) return;
 
-    // ✅ 텍스트는 항상 "확정" 유지
     btn.textContent = "확정";
 
-    // 상태값
-    const isLocked = !!window.__monthLocked;                 // 확정됨(잠김)
-    const isReady  = !isLocked && !!isAdmin && !!window.__canConfirmMonth;  // 확정 가능(활성)
+    const isLocked = !!window.__monthLocked;
+    const canConfirm = !!window.__canConfirmMonth;
 
-    // ✅ 상태 클래스 (CSS가 색을 담당)
-    btn.classList.toggle("is-confirmed", isLocked); // 초록
-    btn.classList.toggle("is-ready", isReady);      // 노랑
+    // ✅ 일반사용자는 내 부서 캘린더에서만 개인확정 가능
+    const viewingMine = (currentDept === userDept);
 
-    // ✅ 활성/비활성
+    const isSuper = (window.__isSuperadmin === true);
+    const isManager = (!!isAdmin && !isSuper);
+
+    // ✅ 부서장/일반은 개인확정 기준으로 “한 번 누르면 비활성화”
+    const adminReady = (!isLocked && isSuper && canConfirm); // (총관리자용, 지금은 사실상 안 써도 됨)
+    const managerReady = (!isLocked && isManager && canConfirm && viewingMine && !window.__userConfirmed);
+    const userReady  = (!isLocked && !isAdmin && canConfirm && viewingMine && !window.__userConfirmed);
+
+    // ✅ 누가 확정 버튼을 쓰는지에 따라 ready 분기
+    const isReady = isSuper ? adminReady : (isManager ? managerReady : userReady);
+
+    // ✅ 초록(confirmed) 규칙 변경!
+    // - 총관리자만 month_lock 기준(잠금되면 초록)
+    // - 부서장/일반은 개인확정(userConfirmed) 기준(확정하면 초록)
+    const isConfirmed = isSuper ? isLocked : (!!window.__userConfirmed);
+
+    btn.classList.toggle("is-confirmed", isConfirmed);
+    btn.classList.toggle("is-ready", isReady);
     btn.disabled = !isReady;
 
-    // ✅ 확정 해제 버튼(총관리자 전용)
+    // (선택) 내 부서가 아니면 힌트
+    if (!isSuper && !viewingMine) {
+      btn.title = "개인 확정은 내 부서 캘린더에서만 가능합니다.";
+    } else {
+      btn.title = "";
+    }
+
+    // ✅ 확정 해제 버튼(총관리자 전용) 기존 로직 유지
     const unlockBtn = document.querySelector(".fc-unlockMonth-button");
     if (unlockBtn) {
       const isSuper = window.__isSuperadmin === true;
-
-      const isLocked = !!window.__monthLocked;
-
-      // ✅ 총관리자 + 잠김일 때만 보이게
       const showUnlock = isSuper && isLocked;
-
       unlockBtn.style.display = showUnlock ? "" : "none";
       unlockBtn.disabled = !showUnlock;
-
-      // ✅ 상태 클래스(색은 CSS에서)
       unlockBtn.classList.toggle("is-enabled", showUnlock);
-    } 
+    }
   }
+
 
 
   // ✅ FullCalendar 초기화
@@ -643,69 +804,56 @@ document.addEventListener("DOMContentLoaded", async function () {
         click: async function () {
           // 버튼 상태는 아래 updateConfirmButtonState()에서 관리
           if (!window.__canConfirmMonth) {
-            showToast("확정 가능한 기간이 아니거나 이미 확정되었습니다.", "error");
-            return;
-          }
-          if (!isAdmin) {
-            showToast("관리자만 확정할 수 있습니다.", "error");
+            showToast("확정 가능한 기간이 아닙니다.", "error");
             return;
           }
 
           const d = calendar.getDate();
           const y = d.getFullYear();
           const m = d.getMonth() + 1;
+          const isSuper = (window.__isSuperadmin === true);
+          const isManager = isAdmin && !isSuper;   // ✅ 중간관리자만
+
+          // ✅ 부서장(중간관리자): 휴가계 개인 확정만 기록 (잠금/서명 X)
+          if (isManager) {
+            try {
+              const res = await axios.post("{{ url_for('calendar.manager_month_confirm') }}", {
+                dept: currentDept,
+                year: y,
+                month: m
+              });
+
+              showToast(res.data.message || "확정 완료");
+              await updateConfirmButtonState();
+              calendar.refetchEvents();
+            } catch (err) {
+              showToast((err.response?.data?.message) || "확정 실패", "error");
+              await updateConfirmButtonState();
+            }
+            return;
+          }
+
+          // ✅ 일반사용자: 개인 확정(upsert)
+          if (currentDept !== userDept) {
+            showToast("내 부서 캘린더에서만 개인 확정이 가능합니다.", "error");
+            return;
+          }
 
           try {
-            const res = await axios.post("{{ url_for('calendar.month_lock_confirm') }}", {
+            const res = await axios.post("{{ url_for('calendar.user_month_confirm') }}", {
               dept: currentDept,
               year: y,
               month: m
             });
 
-            showToast(res.data.message || "확정 완료");
-            await updateConfirmButtonState();     // 버튼/상태 갱신
-            calendar.refetchEvents();             // 필요시 새로고침
+            showToast(res.data.message || "개인 확정 완료");
+            await updateConfirmButtonState();
           } catch (err) {
-            const msg = (err.response?.data?.message) || "확정 실패";
-            showToast(msg, "error");
+            showToast((err.response?.data?.message) || "개인 확정 실패", "error");
             await updateConfirmButtonState();
           }
         }
       },
-      // ✅ 추가: 확정 해제(총관리자만)
-      unlockMonth: {
-        text: "확정 해제",
-        click: async function () {
-          const isSuper = window.__isSuperadmin === true;
-          if (!isSuper) {
-            showToast("총관리자만 확정 해제할 수 있습니다.", "error");
-            return;
-          }
-          if (!window.__monthLocked) {
-            showToast("확정된 달이 아닙니다.", "error");
-            return;
-          }
-
-          if (!confirm("정말 이 달의 확정을 해제할까요? (수정/삭제가 다시 가능해집니다)")) return;
-
-          const d = calendar.getDate();
-          const y = d.getFullYear();
-          const m = d.getMonth() + 1;
-
-          try {
-            const res = await axios.post("{{ url_for('calendar.month_lock_unlock') }}", {
-              dept: currentDept, year: y, month: m
-            });
-
-            showToast(res.data.message || "확정 해제 완료");
-            await updateConfirmButtonState();
-            calendar.refetchEvents();
-          } catch (err) {
-            showToast((err.response?.data?.message) || "확정 해제 실패", "error");
-            await updateConfirmButtonState();
-          }
-        }
-      }
     },
 
     headerToolbar: { left: "", center: "title", right: "" },
@@ -714,7 +862,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       left: "prev,today,next",
       center: "",
       // ✅ 월/목록/확정(붙은 그룹) + 확정해제(별도 버튼) 를 오른쪽에 배치
-      right: "dayGridMonth,listWeek,confirmMonth unlockMonth",
+      right: "dayGridMonth,listWeek,confirmMonth",
     },
 
     buttonText: { today: "오늘", month: "월", week: "주", list: "목록" },
@@ -1311,6 +1459,21 @@ document.addEventListener("DOMContentLoaded", async function () {
       flexTab.classList.remove("hidden");
       tabFlex.classList.add("border-sky-500", "text-sky-600");
     }
+    // ✅ 총관리자: '대상 직원' 드롭바는 휴가 탭에서만 보이게
+    if (window.__isSuperadmin === true) {
+      const wrap = document.getElementById("superUserWrap");
+      const sel = document.getElementById("superUserSelect");
+      if (wrap) {
+        const show = (tabName === "vacation");
+        wrap.classList.toggle("hidden", !show);
+        if (sel) {
+          sel.disabled = !show;
+          if (!show) sel.value = ""; // 꼬임 방지: 탭 바꾸면 선택값 초기화
+        }
+      }
+    }
+    // ✅ openAdminModal에서 기본 탭 세팅하려고 전역 노출
+    window._showAdminTab = showTab;
   }
 
   // ✅ 탭 클릭 이벤트
@@ -1370,6 +1533,28 @@ document.addEventListener("DOMContentLoaded", async function () {
         });
     });
 
+    // ✅ 총관리자 동적 근무자 버튼: 이벤트 위임으로 클릭 처리
+    if (superWorkerBox) {
+      superWorkerBox.addEventListener("click", (e) => {
+        const btn = e.target.closest(".worker-btn");
+        if (!btn) return;
+
+        const name = (btn.dataset.name || "").trim();
+        if (!name) return;
+
+        if (selectedWorkers.includes(name)) {
+          selectedWorkers = selectedWorkers.filter((n) => n !== name);
+          btn.classList.remove("ring-2", "ring-sky-400", "bg-sky-500", "text-white");
+          btn.classList.add("bg-blue-100", "text-blue-700");
+        } else {
+          selectedWorkers.push(name);
+          btn.classList.add("ring-2", "ring-sky-400", "bg-sky-500", "text-white");
+          btn.classList.remove("bg-blue-100", "text-blue-700");
+        }
+
+        console.log("✅(super) 선택된 근무자:", selectedWorkers);
+      });
+    }
 
 
     // ✅ 관리자 등록 버튼 (단일 정의!)
@@ -1381,23 +1566,58 @@ document.addEventListener("DOMContentLoaded", async function () {
         }
         const hours = document.getElementById("flexHours").value;
         const target_name = document.getElementById("flexUser").value;
+        // ✅ 현재 열린 탭 체크 + 필수값 가드 (res undefined 방지)
+        const vacationActive = !vacationTab.classList.contains("hidden");
+        const workerActive   = !workerTab.classList.contains("hidden");
+        const flexActive     = !flexTab.classList.contains("hidden");
+
+        if (vacationActive && !selectedType) {
+          showToast("휴가 종류를 선택해주세요.", "error");
+          return;
+        }
+
+        if (workerActive && selectedWorkers.length === 0) {
+          showToast("근무자를 선택해주세요.", "error");
+          return;
+        }
 
         try {
             let res;
 
+            // ✅ 총관리자일 때: 모달에서 선택한 부서/직원 사용
+            const deptForSave = isSuperadmin
+            ? (document.getElementById("superDeptSelect")?.value || "{{ dept }}").trim()
+            : userDept; // ✅ 중간관리자/일반관리자는 '내 부서'로 고정 저장
+
+            const superTargetName = isSuperadmin
+              ? (document.getElementById("superUserSelect")?.value || "").trim()
+              : "";
+
             // 🟢 휴가 탭
             if (!vacationTab.classList.contains("hidden") && selectedType) {
-              const dept = "{{ dept }}".trim();
 
               const payload = {
                 start: selectedDate,
                 end: selectedDate,
                 type: selectedType,
-                department: dept
+                department: deptForSave
               };
 
-              // ✅ 의료진 캘린더에서만: 대상 의료진 선택
-              if (dept === "의료진") {
+              // ✅ 총관리자: 부서/대상직원 필수 (의료진/일반부서 모두 대상 선택 가능)
+              if (isSuperadmin) {
+                if (!deptForSave) {
+                  showToast("대상 부서를 선택해주세요.", "error");
+                  return;
+                }
+                if (!superTargetName) {
+                  showToast("대상 직원을 선택해주세요.", "error");
+                  return;
+                }
+                payload.target_name = superTargetName;
+              }
+
+              // ✅ 의료진(비총관리자): 기존 medicalUser 방식 유지
+              if (!isSuperadmin && deptForSave === "의료진") {
                 const medicalUser = document.getElementById("medicalUser");
                 const targetName = medicalUser ? (medicalUser.value || "").trim() : "";
 
@@ -1405,34 +1625,44 @@ document.addEventListener("DOMContentLoaded", async function () {
                   showToast("의료진을 선택해주세요.", "error");
                   return;
                 }
-
                 payload.target_name = targetName;
+              }
+              // ✅ 중간관리자(비총관리자): 내 부서 캘린더에서 직원 선택 필수
+              if (!isSuperadmin && isAdmin && deptForSave !== "의료진") {
+                const mgrSel = document.getElementById("mgrUserSelect");
+                const targetName = mgrSel ? (mgrSel.value || "").trim() : "";
 
-                // ✅ '일정'이면 메모/시간 포함
-                if (selectedType === "일정") {
-                  const memo = (document.getElementById("scheduleMemo")?.value || "").trim();
-                  const st = document.getElementById("scheduleStart")?.value || "";
-                  const en = document.getElementById("scheduleEnd")?.value || "";
-
-                  if (!st || !en) {
-                    showToast("시작/종료 시간을 선택해주세요.", "error");
-                    return;
-                  }
-                  if (st >= en) {
-                    showToast("종료 시간은 시작 시간보다 늦어야 합니다.", "error");
-                    return;
-                  }
-
-                  payload.memo = memo;
-                  payload.start_time = st;
-                  payload.end_time = en;
+                if (!targetName) {
+                  showToast("직원을 선택해주세요.", "error");
+                  return;
                 }
-              } else {
-                // ✅ 의료진이 아닌 부서에서는 일정 선택 자체를 막기(프론트 안전장치)
-                if (selectedType === "일정") {
+                payload.target_name = targetName;
+              }
+
+              // ✅ '일정' 처리
+              if (selectedType === "일정") {
+                // '일정'은 의료진에서만
+                if (deptForSave !== "의료진") {
                   showToast("‘일정’은 의료진 캘린더에서만 등록할 수 있습니다.", "error");
                   return;
                 }
+
+                const memo = (document.getElementById("scheduleMemo")?.value || "").trim();
+                const st = document.getElementById("scheduleStart")?.value || "";
+                const en = document.getElementById("scheduleEnd")?.value || "";
+
+                if (!st || !en) {
+                  showToast("시작/종료 시간을 선택해주세요.", "error");
+                  return;
+                }
+                if (st >= en) {
+                  showToast("종료 시간은 시작 시간보다 늦어야 합니다.", "error");
+                  return;
+                }
+
+                payload.memo = memo;
+                payload.start_time = st;
+                payload.end_time = en;
               }
 
               res = await axios.post("{{ url_for('vacation.add_event') }}", payload);
@@ -1441,44 +1671,49 @@ document.addEventListener("DOMContentLoaded", async function () {
 
             // 🟠 근무자 탭
             if (!workerTab.classList.contains("hidden") && selectedWorkers.length > 0) {
-                res = await axios.post("{{ url_for('vacation.add_event') }}", {
-                    start: selectedDate,
-                    end: selectedDate,
-                    type: "근무자",
-                    worker_names: selectedWorkers,
-                    department: "{{ dept }}".trim()
-                });
+              res = await axios.post("{{ url_for('vacation.add_event') }}", {
+                start: selectedDate,
+                end: selectedDate,
+                type: "근무자",
+                worker_names: selectedWorkers,
+                department: deptForSave,   // ✅ 총관리자면 선택 부서로 저장
+              });
             }
+
 
             // 🟣 탄력근무 탭
-            if (!flexTab.classList.contains("hidden") && target_name) {
-                const parsedHours = parseFloat(hours);
+            if (!flexTab.classList.contains("hidden")) {
+              const parsedHours = parseFloat(hours);
 
-                if (isNaN(parsedHours) || parsedHours === 0) {
-                    showToast("근무 시간을 올바르게 입력해주세요. (0은 입력 불가)", "error");
-                    return;
-                }
+              if (isNaN(parsedHours) || parsedHours === 0) {
+                showToast("근무 시간을 올바르게 입력해주세요. (0은 입력 불가)", "error");
+                return;
+              }
+              if (parsedHours < -6 || parsedHours > 6) {
+                showToast("근무 시간은 -5 ~ +5 사이로 입력해주세요.", "error");
+                return;
+              }
 
-                if (parsedHours < -6 || parsedHours > 6) {
-                    showToast("근무 시간은 -5 ~ +5 사이로 입력해주세요.", "error");
-                    return;
-                }
+              const targetNameForFlex = (document.getElementById("flexUser")?.value || "").trim();
 
-                // 🔥 add_flex_event 는 vacation_bp 안에 있으므로 url_for 를 사용해야 함
-                const flexUrl = "{{ url_for('vacation.add_flex_event') }}";
+              if (!targetNameForFlex) {
+                showToast("대상 직원을 선택해주세요.", "error");
+                return;
+              }
 
-                res = await axios.post(
-                    flexUrl,
-                    {
-                    date: selectedDate,
-                    target_name: target_name.trim(),
-                    hours: parsedHours,
-                    },
-                    {
-                    headers: { "Content-Type": "application/json" },
-                    }
-                );
+              const flexUrl = "{{ url_for('vacation.add_flex_event') }}";
+              res = await axios.post(
+                flexUrl,
+                {
+                  date: selectedDate,
+                  target_name: targetNameForFlex,
+                  hours: parsedHours,
+                  department: deptForSave,   // ✅ 서버에서 받게 만들 것(총관리자용)
+                },
+                { headers: { "Content-Type": "application/json" } }
+              );
             }
+
 
             // ✅ 서버 응답 처리
             if (res && res.data) {
@@ -1501,12 +1736,15 @@ document.addEventListener("DOMContentLoaded", async function () {
             } else {
                 showToast("서버 응답이 없습니다.", "error");
             }
-
-
             } catch (err) {
-                console.error("❌ 오류:", err);
-                showToast("등록 중 오류가 발생했습니다.", "error");
-        }
+              console.error("❌ 오류:", err);
+              const msg =
+                err?.response?.data?.message ||
+                err?.response?.data?.error ||
+                err?.message ||
+                "등록 중 오류가 발생했습니다.";
+              showToast(msg, "error");
+            }
     });
 
     // ✅ 공용 초기화 함수 정의
@@ -1674,8 +1912,8 @@ function openAdminModal(dateStr) {
   const stEl = document.getElementById("scheduleStart");
   const enEl = document.getElementById("scheduleEnd");
   if (stEl && enEl) {
-    stEl.value = "08:00";
-    enEl.value = "17:00";
+    stEl.value = "09:00";
+    enEl.value = "18:00";
   }
 
   // 공용 초기화 (근무자 선택 제거)
@@ -1688,13 +1926,10 @@ function openAdminModal(dateStr) {
   const day = d.getDay(); // 0:일 ~ 6:토
   const currentDept = "{{ dept }}".trim();
 
-  // 기본 탭 자동 선택
-  if (typeof showTab === "function") {
-    if (day === 0 || day === 6) {
-      showTab("worker");   // 토/일 → 근무자 탭
-    } else {
-      showTab("vacation"); // 평일 → 휴가 탭
-    }
+  // ✅ 기본 탭 자동 선택 (전역 showTab 사용)
+  if (typeof window._showAdminTab === "function") {
+    if (day === 0 || day === 6) window._showAdminTab("worker");
+    else window._showAdminTab("vacation");
   }
 
   // ==========================
@@ -1724,7 +1959,10 @@ function openAdminModal(dateStr) {
       }
   });
 
-
+  // ✅ 총관리자: 모달 열 때마다 부서 기준 사용자 UI를 강제로 재동기화
+  if (window.__isSuperadmin === true && typeof window._refreshSuperadminUserUI === "function") {
+    window._refreshSuperadminUserUI();
+  }
   // ==========================
   // 모달 보이기 (위치/배경은 CSS로 처리)
   // ==========================
@@ -1748,6 +1986,10 @@ function openAdminModal(dateStr) {
         "bg-opacity-80"
       );
     });
+
+    // ✅ (중간관리자) 직원 선택 드롭바 초기화
+    const mgrSel = document.getElementById("mgrUserSelect");
+    if (mgrSel) mgrSel.value = "";
 
     selectedType = null;
     selectedWorkers = [];
@@ -2079,20 +2321,6 @@ function openAdminModal(dateStr) {
       background: #16a34a !important;   /* green */
       border-color: #15803d !important;
       cursor: default !important;
-    }
-    /* ✅ 확정 해제 버튼: 세그먼트와 분리된 danger 버튼 */
-    .fc .fc-unlockMonth-button {
-      margin-left: 10px !important;         /* 오른쪽 세그먼트와 간격 */
-      background: #fff !important;
-      color: #ef4444 !important;            /* red-500 */
-      border: 1px solid #ef4444 !important;
-      border-radius: 10px !important;
-      font-weight: 800 !important;
-      box-shadow: none !important;
-    }
-
-    .fc .fc-unlockMonth-button:hover {
-      filter: brightness(0.98) !important;
     }
 
 
