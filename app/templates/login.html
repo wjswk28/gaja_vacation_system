@@ -162,6 +162,9 @@
           <input type="text" name="username" id="username"
                  value="{{ saved_username or '' }}"
                  required
+                 autocapitalize="none"
+                 autocomplete="username"
+                 spellcheck="false"
                  class="w-full border border-sky-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 input-focus bg-white/80"
                  placeholder="사번 또는 부여받은 아이디를 입력하세요">
         </div>
