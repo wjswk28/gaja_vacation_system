@@ -24,13 +24,15 @@ def login():
     error = None
 
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
+# ✅ 아이디는 대소문자 무시: 입력은 소문자로 정규화
+        username_raw = request.form.get("username", "").strip()
+        username = username_raw.lower()
+
         password = request.form.get("password", "").strip()
         selected_dept = request.form.get("department", "").strip()
         remember = request.form.get("remember_id")
 
         user = User.query.filter_by(username=username).first()
-
         # ✅ 사용자 검증
         if user and user.password == password:
 
