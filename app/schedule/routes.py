@@ -2,7 +2,7 @@ from flask import request, jsonify, send_file, current_app
 from flask_login import login_required
 from datetime import datetime, date
 from app.schedule import schedule_bp
-from app.models import User, Vacation, MonthLock
+from app.models import User, Vacation, MonthLock, MonthSignToggle, ApprovalRoleUser
 from app.schedule.utils import (
     thin_border,
     thin_side,
@@ -32,6 +32,8 @@ def apply_vertical_border(cell, left=False, right=False):
 
 LEFT_MEDIUM_COLS = [1]  # A열 왼쪽 굵은선
 RIGHT_MEDIUM_COLS = [2, 33, 34, 35, 36]  # B, AG, AH, AI, AJ 열 오른쪽 굵은선
+ADMIN_HEAD_DEPTS = {"도수", "물리치료", "심사과", "원무과", "총무과", "홍보", "진단검사", "영양", "약제부"}
+NURSE_HEAD_DEPTS = {"병동", "상담실", "수술실", "외래"}
 
 # =========================================================
 # 근무표 자동 생성 (블루프린트 버전)
@@ -283,43 +285,106 @@ def export_schedule(dept):
     ws.print_title_rows = "1:7"
 
     # =========================================================
-    # ✅ (확정된 달이면) 중간관리자 서명 이미지를 AA3에 삽입
+    # ✅ (확정된 달이면) 서명 삽입
+    #  - AA3: 확정한 중간관리자 서명(기존 유지)
+    #  - AD3: 부장(행정부장/간호부장) 서명 (토글 ON + 부서 매핑)
+    #  - AG3: 병원장 서명 (토글 ON)
+    #  - 단, "부서 확정(locked)" 된 부서만 적용
     # =========================================================
     dept_key = (dept or "").strip()
     lk = MonthLock.query.filter_by(department=dept_key, year=year, month=month).first()
 
-    if lk and lk.locked and lk.locked_by:
-        signer = db.session.get(User, int(lk.locked_by))
-        sig_name = (getattr(signer, "signature_image", "") or "").strip() if signer else ""
+    def _sig_path_from_user(u: User):
+        sig = (getattr(u, "signature_image", "") or "").strip() if u else ""
+        if not sig:
+            return None
 
-        # ✅ DB에 "파일명만" 저장했다는 전제: /var/data(or instance)/signatures/<파일명>
-        sig_path = (
-            os.path.join(current_app.config["SIGNATURES_FOLDER"], sig_name)
-            if sig_name else None
-        )
+        # 1) DB에 절대경로가 저장된 경우
+        if os.path.isabs(sig) and os.path.exists(sig):
+            return sig
 
-        if sig_path and os.path.exists(sig_path):
-            try:
-                img = XLImage(sig_path)
+        # 2) DB에 "폴더/파일명" 형태가 저장된 경우 → 파일명만 뽑아서 SIGNATURES_FOLDER에 붙임
+        sig_base = os.path.basename(sig)
+        return os.path.join(current_app.config["SIGNATURES_FOLDER"], sig_base)
+    
 
-                # ✅ (선택) 표시 크기 고정: 칸 덮어 “늘어난 것처럼” 보이는 현상 줄이기
-                # 필요 없으면 주석처리 가능
-                img.width = 115
-                img.height = 64
-
-                ws.add_image(img, "AA3")
-
-            except Exception as e:
-                # ✅ Pillow 미설치/이미지 손상 등으로 500 터지는 걸 방지
-                current_app.logger.exception(
-                    "SIGNATURE INSERT FAILED: dept=%s y=%s m=%s locked_by=%s sig=%s path=%s err=%s",
-                    dept_key, year, month, lk.locked_by, sig_name, sig_path, repr(e)
-                )
-        else:
-            current_app.logger.warning(
-                "Month locked but signature file missing. dept=%s %04d-%02d locked_by=%s sig=%s path=%s",
-                dept_key, year, month, lk.locked_by, sig_name, sig_path
+    def _add_sig(ws, cell_addr: str, sig_path: str):
+        if not sig_path or (not os.path.exists(sig_path)):
+            return False
+        try:
+            img = XLImage(sig_path)
+            # ✅ 기존 부서장 서명 크기와 동일하게
+            img.width = 100
+            img.height = 64
+            ws.add_image(img, cell_addr)
+            return True
+        except Exception as e:
+            current_app.logger.exception(
+                "SIGNATURE INSERT FAILED: dept=%s y=%s m=%s cell=%s path=%s err=%s",
+                dept_key, year, month, cell_addr, sig_path, repr(e)
             )
+            return False
+        
+    def _get_role_user(role: str):
+        rec = ApprovalRoleUser.query.filter_by(role=role).first()
+        return rec.user if rec else None
+
+
+    # ✅ 확정된 달(locked)인 경우에만 서명 로직 실행
+    if lk and lk.locked:
+
+        # -----------------------------------------------------
+        # 1) (기존) 확정한 중간관리자 서명 → AA3
+        # -----------------------------------------------------
+        if lk.locked_by:
+            signer = db.session.get(User, int(lk.locked_by))
+            sig_path = _sig_path_from_user(signer)
+            if sig_path and os.path.exists(sig_path):
+                _add_sig(ws, "AA3", sig_path)
+            else:
+                current_app.logger.warning(
+                    "Month locked but manager signature missing. dept=%s %04d-%02d locked_by=%s path=%s",
+                    dept_key, year, month, lk.locked_by, sig_path
+                )
+
+        # -----------------------------------------------------
+        # 2) 결재라인 토글 상태 조회 (월 단위)
+        # -----------------------------------------------------
+        tg = MonthSignToggle.query.filter_by(year=year, month=month).first()
+        director_on = bool(tg and tg.director_on)
+        admin_head_on = bool(tg and tg.admin_head_on)
+        nurse_head_on = bool(tg and tg.nurse_head_on)
+
+        # -----------------------------------------------------
+        # 3) 병원장 서명 → AG3 (토글 ON일 때만)
+        # -----------------------------------------------------
+        if director_on:
+            director = _get_role_user("director")
+            director_path = _sig_path_from_user(director)
+            if not _add_sig(ws, "AG3", director_path):
+                current_app.logger.warning(
+                    "Director toggle ON but signature missing. dept=%s %04d-%02d path=%s",
+                    dept_key, year, month, director_path
+                )
+
+        # -----------------------------------------------------
+        # 4) 부장 서명 → AD3 (부서에 따라 행정부장/간호부장, 그리고 토글 ON 조건)
+        # -----------------------------------------------------
+        head_name = None
+        if dept_key in ADMIN_HEAD_DEPTS:
+            head_name = "행정부장" if admin_head_on else None
+        elif dept_key in NURSE_HEAD_DEPTS:
+            head_name = "간호부장" if nurse_head_on else None
+
+        if head_name:
+            head_user = _get_role_user("admin_head") if head_name == "행정부장" else _get_role_user("nurse_head")
+            head_path = _sig_path_from_user(head_user)
+            if not _add_sig(ws, "AD3", head_path):
+                current_app.logger.warning(
+                    "Head toggle ON but signature missing. head=%s dept=%s %04d-%02d path=%s",
+                    head_name, dept_key, year, month, head_path
+                )
+
 
     # ====== 파일 저장 후 전송 ======
 
