@@ -2,6 +2,7 @@ from datetime import datetime, date, timedelta
 from flask_login import UserMixin
 from datetime import datetime
 from app import db, login_manager
+from sqlalchemy.orm import validates
 
 # =====================
 # DB 모델
@@ -23,6 +24,11 @@ class User(UserMixin, db.Model):
     used_before_system = db.Column(db.Float, default=0)
     birthday = db.Column(db.String(20))
     address = db.Column(db.String(100))           # 주소
+
+    # ✅ username 저장 시 무조건 소문자/공백정리 강제
+    @validates("username")
+    def _normalize_username(self, key, value):
+        return (value or "").strip().lower()
 
     # ✅ NEW: 전화번호
     phone = db.Column(db.String(20), nullable=True)  # 예: 010-1234-5678
