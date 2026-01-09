@@ -219,7 +219,26 @@ class ApprovalRoleUser(db.Model):
     user = db.relationship("User")
 
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
+class MutualAidOfficer(db.Model):
+    __tablename__ = "mutual_aid_officers"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # president=상조회장, treasurer=총무
+    role = db.Column(db.String(20), nullable=False, index=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    user = db.relationship("User", foreign_keys=[user_id])
+
+    active = db.Column(db.Boolean, default=True, nullable=False, index=True)
+
+    appointed_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    appointed_by = db.relationship("User", foreign_keys=[appointed_by_id])
+
+    appointed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    ended_at = db.Column(db.DateTime, nullable=True)
+       
 # =====================
 # 로그인 user loader
 # =====================
