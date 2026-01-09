@@ -1,6 +1,6 @@
 from datetime import datetime, date, timedelta
 from flask_login import UserMixin
-from datetime import datetime
+from datetime import datetime, date
 from app import db, login_manager
 from sqlalchemy.orm import validates
 
@@ -238,6 +238,42 @@ class MutualAidOfficer(db.Model):
 
     appointed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     ended_at = db.Column(db.DateTime, nullable=True)
+
+class MutualAidLedger(db.Model):
+    __tablename__ = "mutual_aid_ledger"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # ✅ 이 날짜 기준으로 "년도 필터링" 할 거라서 year를 따로 저장
+    entry_date = db.Column(db.Date, nullable=False, index=True)
+    year = db.Column(db.Integer, nullable=False, index=True)
+
+    # income=수입 / expense=지출
+    entry_type = db.Column(db.String(10), nullable=False, index=True)
+
+    # 표시용(예: 회비, 경조금, 물품구입 등)
+    title = db.Column(db.String(120), nullable=False)
+
+    # ✅ 금액: 원 단위 정수(권장)
+    amount = db.Column(db.Integer, nullable=False)
+
+    memo = db.Column(db.Text, nullable=True)
+
+    created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    created_by = db.relationship("User", foreign_keys=[created_by_id])
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    @property
+    def signed_amount(self) -> int:
+        """계산용: 수입은 +, 지출은 - 로 반환"""
+        return self.amount if self.entry_type == "income" else -self.amount
+
+    def set_year(self):
+        """entry_date 기반으로 year 자동 세팅(라우트에서 호출)"""
+        if self.entry_date:
+            self.year = int(self.entry_date.year)
        
 # =====================
 # 로그인 user loader
