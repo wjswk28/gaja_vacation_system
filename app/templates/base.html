@@ -121,14 +121,19 @@
                   <span>신규입사</span>
                 </a>
             {% endif %}
-            <a href="{{ url_for('myinfo.myinfo') }}" class="flex items-center gap-1 text-white/80 hover:text-white transition-colors">
-            <i data-lucide="user" class="w-4 h-4"></i>
-            <span>내 정보</span>
-            </a>
-            <a href="{{ url_for('auth.logout') }}" class="flex items-center gap-1 text-rose-200 hover:text-white transition-colors">
-            <i data-lucide="log-out" class="w-4 h-4"></i>
-            <span>로그아웃</span>
-            </a>
+                <!-- ✅ 상조회 (전체 사용자 공통) -->
+                <a href="{{ url_for('mutual_aid.index') }}" class="flex items-center gap-1 hover:text-sky-200 transition-colors">
+                  <i data-lucide="heart-handshake" class="w-4 h-4"></i>
+                  <span>상조회</span>
+                </a>
+                <a href="{{ url_for('myinfo.myinfo') }}" class="flex items-center gap-1 text-white/80 hover:text-white transition-colors">
+                  <i data-lucide="user" class="w-4 h-4"></i>
+                  <span>내 정보</span>
+                </a>
+                <a href="{{ url_for('auth.logout') }}" class="flex items-center gap-1 text-rose-200 hover:text-white transition-colors">
+                  <i data-lucide="log-out" class="w-4 h-4"></i>
+                  <span>로그아웃</span>
+                </a>
         </nav>
         {% endif %}
 
@@ -192,6 +197,13 @@
             </a>
             {% endif %}
 
+            <!-- ✅ 상조회 (전체 사용자 공통) -->
+            <a href="{{ url_for('mutual_aid.index') }}" 
+              class="flex flex-col items-center hover:text-sky-600 transition">
+              <i data-lucide="heart-handshake" class="w-5 h-5"></i>
+              <span>상조회</span>
+            </a>
+
             <!-- 내 정보 -->
             <a href="{{ url_for('myinfo.myinfo') }}" 
                 class="flex flex-col items-center hover:text-sky-600 transition">
@@ -200,7 +212,7 @@
             </a>
 
             <!-- 로그아웃 -->
-            <a href="{{ url_for('auth.logout') }}" 
+            <a href="{{ url_for('auth.logout') }}"
                 class="flex flex-col items-center text-rose-500 hover:text-rose-600 transition">
                 <i data-lucide="log-out" class="w-5 h-5"></i>
                 <span>로그아웃</span>
