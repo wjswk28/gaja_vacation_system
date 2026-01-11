@@ -228,9 +228,10 @@ class MutualAidOfficer(db.Model):
     # president=상조회장, treasurer=총무
     role = db.Column(db.String(20), nullable=False, index=True)
     year = db.Column(db.Integer, nullable=False, index=True)
+
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
     user = db.relationship("User", foreign_keys=[user_id])
-
+    
     active = db.Column(db.Boolean, default=True, nullable=False, index=True)
 
     appointed_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
@@ -274,6 +275,17 @@ class MutualAidLedger(db.Model):
         """entry_date 기반으로 year 자동 세팅(라우트에서 호출)"""
         if self.entry_date:
             self.year = int(self.entry_date.year)
+
+class MutualAidYearFinal(db.Model):
+    __tablename__ = "mutual_aid_year_finals"
+
+    year = db.Column(db.Integer, primary_key=True)  # 2024, 2025...
+    finalized = db.Column(db.Boolean, default=True, nullable=False)
+    closing_balance = db.Column(db.Integer, default=0, nullable=False)  # 그 해 결산 잔액
+    finalized_by_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    finalized_at = db.Column(db.DateTime)
+
+    finalized_by = db.relationship("User", foreign_keys=[finalized_by_id])
        
 # =====================
 # 로그인 user loader
