@@ -418,20 +418,29 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const unfinalBtn = document.getElementById("maUnfinalizeBtn");
   if (unfinalBtn) {
-    const selectedYear = Number(document.getElementById("maSelectedYear")?.value || new Date().getFullYear());
-
     unfinalBtn.addEventListener("click", async () => {
-      const ok = confirm(`${selectedYear}년 결산을 해제할까요?\n해제하면 해당 연도 입력/수정이 다시 가능해집니다.`);
+      const year = Number(document.getElementById("maYear")?.value || SELECTED_YEAR);
+
+      const ok = confirm(`${year}년 결산을 해제할까요?\n해제하면 해당 연도 입력/수정이 다시 가능해집니다.`);
       if (!ok) return;
 
-      const res = await fetch(`{{ url_for('mutual_aid.unfinalize_year', year=selected_year) }}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      // ✅ year를 JS에서 확정해서 URL 생성 (선택년도 꼬임 방지)
+      const url = `{{ url_for('mutual_aid.unfinalize_year', year=0) }}`.replace("/0", `/${year}`);
 
-      const data = await res.json().catch(() => ({}));
+      const res = await fetch(url, { method: "POST" });
+
+      // ✅ JSON이 아니면(302/404/500 HTML 등) 본문을 그대로 보여줘서 원인 확정
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      if (!ct.includes("application/json")) {
+        const txt = await res.text();
+        maToast(`결산 해제 실패 (${res.status})`, false);
+        console.error("UNFINALIZE NON-JSON RESPONSE:", res.status, txt);
+        return;
+      }
+
+      const data = await res.json();
       if (!res.ok || data.status !== "success") {
-        maToast(data.message || "결산 해제 실패", false);
+        maToast(`${data.message || "결산 해제 실패"} (${res.status})`, false);
         return;
       }
 
@@ -439,7 +448,6 @@ document.addEventListener("DOMContentLoaded", () => {
       window.location.reload();
     });
   }
-
 
   // ✅ 기본 날짜: 오늘
   const d = new Date();
