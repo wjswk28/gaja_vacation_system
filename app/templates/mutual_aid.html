@@ -1,0 +1,489 @@
+{% extends "base.html" %}
+{% block title %}상조회 | 가자연세병원 연차관리 시스템{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-sky-100 py-4 px-4 md:px-6 mt-[0px] sm:mt-[8px] md:mt-[8px]">
+
+    <!-- ✅ 제목 영역 (아이콘 + 타이틀 + 년도 선택) -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2">
+        <!-- 왼쪽: 아이콘+타이틀 -->
+        <div class="flex items-center justify-center md:justify-start gap-2">
+            <i data-lucide="heart-handshake" class="w-6 h-6 text-sky-700"></i>
+            <span class="text-sky-800 font-bold text-xl md:text-2xl">상조회</span>
+
+            <!-- ✅ 년도 선택 드롭바 (타이틀 옆) -->
+            <select id="maYear"
+                    class="ml-2 border border-sky-200 rounded-xl px-3 py-2 text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-sky-200">
+                {% for y in years %}
+                    <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}년</option>
+                {% endfor %}
+            </select>
+            <input type="hidden" id="maSelectedYear" value="{{ selected_year }}">
+        </div>
+    </div>
+
+    <!-- ✅ 상조회장 지정 (총관리자만 변경 가능) -->
+    <div class="card p-4 mb-4">
+        <div class="font-bold text-slate-800 mb-3">상조회 운영자 지정</div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <div class="md:col-span-1">
+                <label class="block text-sm text-slate-600 mb-1">상조회장 (지정)</label>
+
+                {% if current_user.is_superadmin %}
+                    <select id="maPresident"
+                            class="w-full border border-sky-200 rounded-xl px-3 py-2 text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-sky-200">
+                        <option value="">선택</option>
+                        {% for u in all_users %}
+                            <option value="{{ u.id }}"
+                                {% if officers and officers.president and officers.president.id == u.id %}selected{% endif %}>
+                                {{ u.name }} ({{ u.department }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-xs text-slate-500 mt-2">※ 변경하면 바로 저장됩니다. (총관리자만)</p>
+
+                {% else %}
+                    <!-- ✅ 권한 없는 사용자는 '해당년도 상조회장'만 한 줄 표시 -->
+                    <div class="w-full border border-sky-100 rounded-xl px-3 py-2 text-sm md:text-base bg-sky-50/50 text-slate-700">
+                        {% if officers and officers.president %}
+                            {{ selected_year }}년 상조회장 {{ officers.president.name }} ({{ officers.president.department }})
+                        {% else %}
+                            {{ selected_year }}년 상조회장 미지정
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+
+            {% if current_user.is_superadmin or can_edit %}
+                <div class="md:col-span-2">
+                    <div class="text-sm md:text-base text-slate-600 leading-relaxed">
+                        <p class="font-semibold text-slate-800">입력 권한</p>
+                        <ul class="list-disc pl-5 mt-1">
+                            <li><b>상조회장</b>은 상조회 수입/지출 등을 입력할 수 있습니다.</li>
+                            <li><b>총무과 직원</b>은 별도 지정 없이 항상 입력할 수 있습니다.</li>
+                        </ul>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+  <!-- ✅ 전년도 잔액(이월) -->
+  <div class="card p-4 mb-3">
+    <p class="text-xs text-slate-500">{{ prev_year }}년 잔액(이월)</p>
+    <p class="text-lg font-bold mt-1 {% if '-' in carryover_fmt %}text-rose-700{% else %}text-slate-800{% endif %}">
+      {{ carryover_fmt }}원
+    </p>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+    <div class="card p-4">
+      <p class="text-xs text-slate-500">{{ selected_year }}년 수입</p>
+      <p class="text-lg font-bold text-slate-800 mt-1">{{ income_total_fmt }}원</p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs text-slate-500">{{ selected_year }}년 지출</p>
+      <p class="text-lg font-bold text-slate-800 mt-1">{{ expense_total_fmt }}원</p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs text-slate-500">잔액(이월 포함)</p>
+      <p class="text-lg font-bold text-slate-800 mt-1">{{ balance_fmt }}원</p>
+    </div>
+  </div>
+  {% if can_edit %}
+    <div class="mb-3 flex flex-col md:flex-row md:items-center gap-2 text-sm md:text-base">
+        <!-- 날짜 -->
+        <input id="maEntryDate" type="date"
+            class="border border-sky-100 rounded-lg px-3 py-2 md:w-[170px]" />
+
+        <!-- 구분: ✅ 진짜 줄어들게 고정폭 -->
+        <select id="maEntryType"
+                class="border border-sky-100 rounded-lg px-3 py-2 md:w-[80px]">
+        <option value="income">수입</option>
+        <option value="expense">지출</option>
+        </select>
+
+        <!-- 내용: 남은 공간 전부 -->
+        <input id="maTitle" type="text" placeholder="내용(예: 회비, 경조금)"
+            class="border border-sky-100 rounded-lg px-3 py-2 flex-1 min-w-[220px]" />
+
+        <!-- 금액: 넓게 -->
+        <input id="maAmount" type="text" inputmode="numeric" placeholder="금액"
+            class="border border-sky-100 rounded-lg px-3 py-2 md:w-[180px]" />
+
+        <!-- 등록 -->
+        <button id="maAddBtn" type="button"
+                class="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 transition whitespace-nowrap md:w-[86px]">
+        등록
+        </button>
+    </div>
+  {% endif %}
+
+
+
+  <!-- 내역 테이블(기본 골격) -->
+  <div class="card p-4">
+    <div class="flex items-center justify-between gap-2 mb-3">
+      <div class="flex items-center gap-2">
+        <i data-lucide="list" class="w-5 h-5 text-sky-700"></i>
+        <p class="font-bold text-slate-800">상조회 내역</p>
+      </div>
+
+      <!-- (선택) 검색/필터 자리 -->
+      <div class="flex items-center gap-2 text-sm">
+        <input type="text"
+               placeholder="검색(예: 경조사, 이름 등)"
+               class="border border-sky-100 rounded-lg px-3 py-2 w-44 md:w-56">
+      </div>
+    </div>
+
+    <div class="table-wrapper">
+      <table class="min-w-full text-sm md:text-base">
+        <thead class="bg-gradient-to-r from-sky-50 to-sky-100 text-slate-700">
+          <tr>
+            <th class="px-3 py-2 text-center whitespace-nowrap w-[110px]">날 짜</th>
+            <th class="px-3 py-2 text-center whitespace-nowrap w-[80px]">구 분</th>
+            <th class="px-3 py-2 text-center whitespace-nowrap">내 용</th>
+            <th class="px-3 py-2 text-center whitespace-nowrap w-[120px]">금 액</th>
+            {% if can_edit %}
+              <th class="px-3 py-2 text-center whitespace-nowrap w-[110px]">관 리</th>
+            {% endif %}
+        </tr>
+        </thead>
+        <tbody class="divide-y divide-sky-50">
+            {% if entries and entries|length %}
+                {% for e in entries %}
+                    <tr class="hover:bg-sky-50/60">
+                        <!-- 날짜 -->
+                        <td class="px-3 py-2 whitespace-nowrap text-center text-slate-600 w-[110px]">
+                            {{ e.entry_date.strftime("%Y-%m-%d") }}
+                        </td>
+
+                        <td class="px-3 py-2 whitespace-nowrap text-center w-[80px]">
+                            {% if e.entry_type == "income" %}
+                                <span class="inline-flex items-center justify-center px-2 py-1 rounded-full
+                                            text-xs font-semibold bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+                                  수입
+                                </span>
+                            {% else %}
+                                <span class="inline-flex items-center justify-center px-2 py-1 rounded-full
+                                        text-xs font-semibold bg-rose-50 text-rose-700 ring-1 ring-rose-100">
+                                  지출
+                                </span>
+                            {% endif %}
+                        </td>
+
+                        <!-- 내용 -->
+                        <td class="px-3 py-2 text-center text-slate-700 whitespace-nowrap">
+                            {{ e.title }}
+                        </td>
+
+                        <!-- 금액 -->
+                        <td class="px-3 py-2 whitespace-nowrap text-right font-semibold w-[120px]
+                                {% if e.entry_type=='income' %} text-sky-700 {% else %} text-rose-700 {% endif %}">
+                            {% if e.entry_type=="income" %}+{% else %}-{% endif %}{{ "{:,}".format(e.amount) }}원
+                        </td>
+
+                        {% if can_edit %}
+                        <!-- 관리 -->
+                        <td class="px-3 py-2 whitespace-nowrap text-center w-[110px]">
+                            <div class="flex items-center justify-center gap-2">
+                                <button type="button"
+                                        class="text-xs px-2 py-1 rounded-lg border border-sky-200 text-sky-700 hover:bg-sky-50"
+                                        data-id="{{ e.id }}"
+                                        data-date="{{ e.entry_date.strftime('%Y-%m-%d') }}"
+                                        data-type="{{ e.entry_type }}"
+                                        data-title="{{ e.title|e }}"
+                                        data-amount="{{ e.amount }}"
+                                        onclick="openEditModal(this)">
+                                  수정
+                                </button>
+
+                                <button type="button"
+                                        class="text-xs px-2 py-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50"
+                                        data-id="{{ e.id }}"
+                                        onclick="deleteLedger(this.dataset.id)">
+                                  삭제
+                                </button>
+                            </div>
+                        </td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="{% if can_edit %}5{% else %}4{% endif %}" class="px-3 py-6 text-center text-slate-500">
+                        등록된 내역이 없습니다.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+
+
+      </table>
+    </div>
+
+    <p class="text-xs text-slate-500 mt-3">
+      * 개인정보 보호를 위해 필요한 범위에서만 표시합니다.
+    </p>
+    {% if can_edit and (not is_finalized) %}
+        <div class="flex justify-center mt-5">
+            <button type="button"
+                    id="maFinalizeBtn"
+                    class="px-6 py-2 rounded-xl bg-emerald-600 text-white font-semibold
+                        hover:bg-emerald-700 transition shadow-sm">
+                결산
+            </button>
+        </div>
+    {% elif is_finalized %}
+        <div class="flex justify-center mt-5">
+            <span class="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-sm">
+                ✅ {{ selected_year }}년은 결산 완료되어 수정할 수 없습니다.
+            </span>
+        </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ✅ 수정 모달 -->
+<div id="maEditModal" class="fixed inset-0 z-[9998] hidden">
+  <div class="absolute inset-0 bg-black/30"></div>
+
+  <div class="absolute left-1/2 top-24 -translate-x-1/2 w-[92%] max-w-xl">
+    <div class="bg-white rounded-2xl shadow-xl border border-sky-100 p-4 md:p-5">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <i data-lucide="pencil" class="w-5 h-5 text-sky-700"></i>
+          <p class="font-bold text-slate-800">내역 수정</p>
+        </div>
+        <button type="button" class="text-slate-500 hover:text-slate-700" onclick="closeEditModal()">
+          ✕
+        </button>
+      </div>
+
+      <input type="hidden" id="maEditId">
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm md:text-base">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">날짜</label>
+          <input id="maEditDate" type="date"
+                 class="w-full border border-sky-100 rounded-lg px-3 py-2">
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">구분</label>
+          <select id="maEditType" class="w-full border border-sky-100 rounded-lg px-3 py-2">
+            <option value="income">수입</option>
+            <option value="expense">지출</option>
+          </select>
+        </div>
+
+        <div class="md:col-span-2">
+          <label class="block text-xs text-slate-500 mb-1">내용</label>
+          <input id="maEditTitle" type="text"
+                 class="w-full border border-sky-100 rounded-lg px-3 py-2"
+                 placeholder="예: 1월 상조회비">
+        </div>
+
+        <div class="md:col-span-2">
+          <label class="block text-xs text-slate-500 mb-1">금액</label>
+          <input id="maEditAmount" type="text" inputmode="numeric"
+                 class="w-full border border-sky-100 rounded-lg px-3 py-2"
+                 placeholder="예: 600000">
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 mt-4">
+        <button type="button"
+                class="px-4 py-2 rounded-lg border border-sky-100 hover:bg-sky-50"
+                onclick="closeEditModal()">
+          취소
+        </button>
+        <button type="button"
+                class="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700"
+                onclick="saveEdit()">
+          저장
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+
+const SELECTED_YEAR = Number(document.getElementById("maSelectedYear")?.value || new Date().getFullYear());
+
+function maToast(msg, ok=true) {
+  const el = document.createElement("div");
+
+  // ✅ 가운데 정렬 + 네비 아래로 내리기(top-20) + 가독성 강화(어두운 배경 + 링)
+  el.className = `fixed left-1/2 top-20 -translate-x-1/2 z-[9999]
+                  px-5 py-2 rounded-xl shadow-lg text-white text-sm
+                  ring-1 ring-white/20
+                  ${ok ? "bg-slate-900/90" : "bg-rose-600"}`;
+
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+
+function openEditModal(btn) {
+  const modal = document.getElementById("maEditModal");
+  if (!modal) return;
+
+  document.getElementById("maEditId").value = btn.dataset.id || "";
+  document.getElementById("maEditDate").value = btn.dataset.date || "";
+  document.getElementById("maEditType").value = btn.dataset.type || "income";
+  document.getElementById("maEditTitle").value = btn.dataset.title || "";
+  document.getElementById("maEditAmount").value = btn.dataset.amount || "";
+  
+
+  modal.classList.remove("hidden");
+}
+
+function closeEditModal() {
+  const modal = document.getElementById("maEditModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+}
+
+async function saveEdit() {
+  const id = (document.getElementById("maEditId").value || "").trim();
+  const entry_date = (document.getElementById("maEditDate").value || "").trim();
+  const entry_type = (document.getElementById("maEditType").value || "").trim();
+  const title = (document.getElementById("maEditTitle").value || "").trim();
+  const amount = (document.getElementById("maEditAmount").value || "").trim();
+  
+
+  const url = `{{ url_for('mutual_aid.ledger_update', ledger_id=0) }}`.replace("/0", `/${id}`);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ entry_date, entry_type, title, amount })
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.status !== "success") {
+    maToast(data.message || "수정 실패", false);
+    return;
+  }
+
+  maToast("수정 완료");
+  closeEditModal();
+  window.location.reload();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const yearSel = document.getElementById("maYear");
+  if (yearSel) {
+    yearSel.addEventListener("change", () => {
+      const y = yearSel.value;
+      const url = new URL(window.location.href);
+      url.searchParams.set("year", y);
+      window.location.href = url.toString();
+    });
+  }
+
+  const presidentSel = document.getElementById("maPresident");
+
+  // ✅ 총관리자(셀렉트가 있을 때)만 선임 저장 이벤트 연결
+  if (presidentSel) {
+    presidentSel.addEventListener("change", async () => {
+      const userId = presidentSel.value;
+      const year = document.getElementById("maYear")?.value || SELECTED_YEAR;
+
+      const res = await fetch("{{ url_for('mutual_aid.appoint_officer') }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "president", user_id: userId, year })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.status !== "success") {
+        maToast(data.message || "저장 실패", false);
+        return;
+      }
+      maToast("상조회장 선임 완료");
+    });
+  }
+
+
+  // ✅ 기본 날짜: 오늘
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+
+  const dateEl = document.getElementById("maEntryDate");
+  if (dateEl && !dateEl.value) dateEl.value = todayStr;
+
+  // ✅ 등록
+  const addBtn = document.getElementById("maAddBtn");
+  if (addBtn) {
+    addBtn.addEventListener("click", async () => {
+      const entry_date = (document.getElementById("maEntryDate")?.value || "").trim();
+      const entry_type = (document.getElementById("maEntryType")?.value || "").trim();
+      const title = (document.getElementById("maTitle")?.value || "").trim();
+      const amount = (document.getElementById("maAmount")?.value || "").trim();
+      const res = await fetch("{{ url_for('mutual_aid.ledger_add') }}", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ entry_date, entry_type, title, amount })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.status !== "success") {
+        maToast(data.message || "등록 실패", false);
+        return;
+      }
+      maToast("등록 완료");
+      window.location.reload();
+    });
+  }
+  // ✅ 결산
+  const finalizeBtn = document.getElementById("maFinalizeBtn");
+  if (finalizeBtn) {
+    finalizeBtn.addEventListener("click", async () => {
+      const year = Number(document.getElementById("maYear")?.value || SELECTED_YEAR);
+      if (!confirm(`${year}년을 결산할까요?\n결산 후에는 해당 연도 입력/수정/삭제가 불가합니다.`)) return;
+
+      const res = await fetch(`{{ url_for('mutual_aid.finalize_year', year=0) }}`.replace("/0", `/${year}`), {
+        method: "POST"
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.status !== "success") {
+        maToast(data.message || "결산 실패", false);
+        return;
+      }
+
+      maToast("결산 완료");
+
+      // ✅ 결산 후 다음년도 페이지로 이동(이월 반영 확인용)
+      const next = year + 1;
+      const url = new URL(window.location.href);
+      url.searchParams.set("year", next);
+      window.location.href = url.toString();
+    });
+  }
+});
+// ✅ 삭제 함수(전역)
+async function deleteLedger(id) {
+  if (!confirm("이 내역을 삭제할까요?")) return;
+
+  const res = await fetch(`{{ url_for('mutual_aid.ledger_delete', ledger_id=0) }}`.replace("/0", `/${id}`), {
+    method: "POST"
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.status !== "success") {
+    maToast(data.message || "삭제 실패", false);
+    return;
+  }
+  maToast("삭제 완료");
+  window.location.reload();
+}
+</script>
+{% endblock %}
