@@ -348,7 +348,6 @@ def finalize_year(year):
 @mutual_aid_bp.route("/finalize/unlock/<int:year>", methods=["POST"])
 @login_required
 def unfinalize_year(year):
-    # ✅ 총관리자만
     if not current_user.is_superadmin:
         return jsonify({"status": "error", "message": "총관리자만 결산 해제할 수 있습니다."}), 403
 
@@ -356,11 +355,11 @@ def unfinalize_year(year):
     if not fin:
         return jsonify({"status": "error", "message": "해당 연도는 결산 상태가 아닙니다."}), 404
 
-    db.session.delete(fin)
-    db.session.commit()
+    try:
+        db.session.delete(fin)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": f"결산 해제 DB 오류: {str(e)}"}), 500
+
     return jsonify({"status": "success", "message": f"{year}년 결산 해제 완료"})
-
-
-
-
-
