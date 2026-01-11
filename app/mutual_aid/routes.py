@@ -351,7 +351,7 @@ def unfinalize_year(year):
     if not current_user.is_superadmin:
         return jsonify({"status": "error", "message": "총관리자만 결산 해제할 수 있습니다."}), 403
 
-    fin = MutualAidYearFinal.query.filter_by(year=year, finalized=True).order_by(MutualAidYearFinal.id.desc()).first()
+    fin = MutualAidYearFinal.query.filter_by(year=year, finalized=True).first()
     if not fin:
         return jsonify({"status": "error", "message": "해당 연도는 결산 상태가 아닙니다."}), 404
 
@@ -360,6 +360,7 @@ def unfinalize_year(year):
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "error", "message": f"결산 해제 DB 오류: {str(e)}"}), 500
+        return jsonify({"status":"error","message":f"DB 오류: {e}"}), 500
 
     return jsonify({"status": "success", "message": f"{year}년 결산 해제 완료"})
+
