@@ -345,3 +345,23 @@ def finalize_year(year):
 
     return jsonify({"status": "success", "message": f"{year}년 결산 완료", "closing_balance": closing})
 
+@mutual_aid_bp.route("/finalize/undo/<int:year>", methods=["POST"])
+@login_required
+def unfinalize_year(year):
+    # ✅ 총관리자만 결산 해제 가능
+    if not current_user.is_superadmin:
+        return jsonify({"status": "error", "message": "총관리자만 결산 해제할 수 있습니다."}), 403
+
+    fin = (MutualAidYearFinal.query
+           .filter_by(year=year, finalized=True)
+           .order_by(MutualAidYearFinal.id.desc())
+           .first())
+
+    if not fin:
+        return jsonify({"status": "error", "message": "해당 연도는 결산 상태가 아닙니다."}), 400
+
+    db.session.delete(fin)
+    db.session.commit()
+
+    return jsonify({"status": "success", "message": f"{year}년 결산 해제 완료"})
+
