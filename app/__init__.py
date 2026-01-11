@@ -9,7 +9,6 @@ load_dotenv()
 db = SQLAlchemy()
 login_manager = LoginManager()
 
-
 def create_app():
     app = Flask(__name__)
 
