@@ -5,7 +5,7 @@ from app import db
 from app.models import MutualAidOfficer, MutualAidLedger, User, MutualAidYearFinal
 from . import mutual_aid_bp
 from sqlalchemy import func, case
-
+from flask import redirect, url_for, flash
 
 def get_active_officers_obj(year: int):
     officers = MutualAidOfficer.query.filter_by(active=True, year=year).all()
@@ -27,6 +27,27 @@ def can_mutual_aid_edit(user, year: int):
     if (user.department or "").strip() == "총무과":
         return True
     return is_officer(user, "president", year=year)
+
+@mutual_aid_bp.before_request
+@login_required
+def block_medical_dept_from_mutual_aid():
+    # ✅ 총관리자는 항상 허용
+    if getattr(current_user, "is_superadmin", False):
+        return None
+
+    dept = (getattr(current_user, "department", "") or "").strip()
+
+    # ✅ 의료진은 상조회 접근 불가
+    if dept == "의료진":
+        # axios/fetch 등 JSON 요청이면 JSON으로 응답
+        wants_json = request.is_json or ("application/json" in (request.headers.get("Accept") or ""))
+
+        if wants_json:
+            return jsonify({"status": "error", "message": "의료진은 상조회를 이용할 수 없습니다."}), 403
+
+        flash("의료진은 상조회를 이용할 수 없습니다.", "error")
+        return redirect(url_for("calendar.calendar_page"))
+
 
 @mutual_aid_bp.route("/", methods=["GET"])
 @login_required
