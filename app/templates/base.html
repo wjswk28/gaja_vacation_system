@@ -121,11 +121,13 @@
                   <span>신규입사</span>
                 </a>
             {% endif %}
-                <!-- ✅ 상조회 (전체 사용자 공통) -->
+                <!-- ✅ 상조회 (총관리자 or 의료진 제외 사용자만) -->
+                {% if current_user.is_superadmin or (current_user.department|trim != "의료진") %}
                 <a href="{{ url_for('mutual_aid.index') }}" class="flex items-center gap-1 hover:text-sky-200 transition-colors">
                   <i data-lucide="heart-handshake" class="w-4 h-4"></i>
                   <span>상조회</span>
                 </a>
+                {% endif %}
                 <a href="{{ url_for('myinfo.myinfo') }}" class="flex items-center gap-1 text-white/80 hover:text-white transition-colors">
                   <i data-lucide="user" class="w-4 h-4"></i>
                   <span>내 정보</span>
@@ -197,12 +199,14 @@
             </a>
             {% endif %}
 
-            <!-- ✅ 상조회 (전체 사용자 공통) -->
+            <!-- ✅ 상조회 (총관리자 or 의료진 제외 사용자만) -->
+            {% if current_user.is_superadmin or (current_user.department|trim != "의료진") %}
             <a href="{{ url_for('mutual_aid.index') }}" 
               class="flex flex-col items-center hover:text-sky-600 transition">
               <i data-lucide="heart-handshake" class="w-5 h-5"></i>
               <span>상조회</span>
             </a>
+            {% endif %}
 
             <!-- 내 정보 -->
             <a href="{{ url_for('myinfo.myinfo') }}" 
