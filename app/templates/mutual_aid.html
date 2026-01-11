@@ -236,6 +236,15 @@
             </button>
         </div>
     {% elif is_finalized %}
+    {% if current_user.is_superadmin and is_finalized %}
+        <div class="mt-4 flex justify-center">
+            <button id="maUnfinalizeBtn"
+                    type="button"
+                    class="px-4 py-2 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 transition">
+            총관리자 결산 해제
+            </button>
+        </div>
+    {% endif %}
         <div class="flex justify-center mt-5">
             <span class="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-sm">
                 ✅ {{ selected_year }}년은 결산 완료되어 수정할 수 없습니다.
@@ -405,6 +414,29 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       maToast("상조회장 선임 완료");
+    });
+  }
+  const unfinalBtn = document.getElementById("maUnfinalizeBtn");
+  if (unfinalBtn) {
+    const selectedYear = Number(document.getElementById("maSelectedYear")?.value || new Date().getFullYear());
+
+    unfinalBtn.addEventListener("click", async () => {
+      const ok = confirm(`${selectedYear}년 결산을 해제할까요?\n해제하면 해당 연도 입력/수정이 다시 가능해집니다.`);
+      if (!ok) return;
+
+      const res = await fetch(`{{ url_for('mutual_aid.unfinalize_year', year=selected_year) }}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.status !== "success") {
+        maToast(data.message || "결산 해제 실패", false);
+        return;
+      }
+
+      maToast(data.message || "결산 해제 완료", true);
+      window.location.reload();
     });
   }
 
