@@ -92,11 +92,12 @@ def create_app():
     from app.newhire.routes import newhire_bp
     from app.altleave.routes import altleave_bp
     from app.vacation_form import vacation_form_bp
+    from app.mutual_aid import mutual_aid_bp
 
     bp_list = [
         auth_bp, calendar_bp, employee_bp, vacation_bp,
         schedule_bp, birthday_bp, events_bp, myinfo_bp,
-        newhire_bp, altleave_bp, calendar_api_bp, vacation_form_bp
+        newhire_bp, altleave_bp, calendar_api_bp, vacation_form_bp, mutual_aid_bp
     ]
     for bp in bp_list:
         app.register_blueprint(bp)
