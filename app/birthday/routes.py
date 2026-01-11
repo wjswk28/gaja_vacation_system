@@ -26,7 +26,7 @@ def birthday_report():
     # 1) 생일자 목록 조회 (선택한 월만)
     # --------------------------------------------------
     results = []
-    users = User.query.all()
+    users = User.query.filter(User.department != "의료진").all()
 
     for u in users:
         if not u.birthday:
