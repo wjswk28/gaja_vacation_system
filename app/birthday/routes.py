@@ -79,11 +79,12 @@ def birthday_report():
         if bday.month != month:
             continue
 
-        # 올해 기준 생일 날짜
+        # ✅ 계산 기준: '올해(현재년도) 생일'로 고정 (이미 지나갔어도 올해 날짜로 계산)
         this_year_bday = bday.replace(year=today.year)
-        if this_year_bday < today:
-            this_year_bday = this_year_bday.replace(year=today.year + 1)
 
+        if join > this_year_bday:
+            continue
+        
         # 입사일부터 생일까지의 기간
         days_until_birthday = (this_year_bday - join).days
 
