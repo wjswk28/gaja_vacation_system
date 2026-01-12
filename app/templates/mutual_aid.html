@@ -19,6 +19,11 @@
                 {% endfor %}
             </select>
             <input type="hidden" id="maSelectedYear" value="{{ selected_year }}">
+            <button type="button" id="openRules"
+                    class="ml-2 border border-sky-200 rounded-xl px-3 py-2 text-sm md:text-base
+                          text-sky-700 hover:bg-sky-50 transition">
+              정관
+            </button>
         </div>
     </div>
 
@@ -335,6 +340,37 @@
   </div>
 </div>
 
+<!-- ✅ 정관 모달 -->
+<div id="rulesModal" class="fixed inset-0 z-[9997] hidden">
+  <div class="absolute inset-0 bg-black/40"></div>
+
+  <div class="absolute left-1/2 top-20 -translate-x-1/2 w-[94%] max-w-4xl">
+    <div class="bg-white rounded-2xl shadow-xl border border-sky-100 overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b">
+        <div class="flex items-center gap-2">
+          <i data-lucide="file-text" class="w-5 h-5 text-sky-700"></i>
+          <p class="font-bold text-slate-800">상조회 정관</p>
+        </div>
+        <button type="button" id="closeRules"
+                class="px-3 py-1.5 rounded-lg hover:bg-slate-100 text-slate-700">
+          닫기
+        </button>
+      </div>
+
+      <div class="bg-slate-50" style="height: 78vh;">
+        <iframe
+          src="{{ url_for('static', filename='pdfs/mutual/mutual_rules.pdf') }}#toolbar=0&navpanes=0&scrollbar=0"
+          class="w-full h-full border-0"
+          loading="lazy"></iframe>
+      </div>
+
+      <div class="px-4 py-2 text-xs text-slate-500">
+        확대/축소: Ctrl + 마우스 휠(또는 트랙패드 핀치)
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 
 const SELECTED_YEAR = Number(document.getElementById("maSelectedYear")?.value || new Date().getFullYear());
@@ -408,6 +444,28 @@ document.addEventListener("DOMContentLoaded", () => {
       const url = new URL(window.location.href);
       url.searchParams.set("year", y);
       window.location.href = url.toString();
+    });
+  }
+
+  // ✅ 정관 모달 열기/닫기
+  const openRulesBtn = document.getElementById("openRules");
+  const rulesModal = document.getElementById("rulesModal");
+  const closeRulesBtn = document.getElementById("closeRules");
+
+  if (openRulesBtn && rulesModal && closeRulesBtn) {
+    const closeRules = () => rulesModal.classList.add("hidden");
+
+    openRulesBtn.addEventListener("click", () => rulesModal.classList.remove("hidden"));
+    closeRulesBtn.addEventListener("click", closeRules);
+
+    // 바깥(오버레이) 클릭하면 닫기
+    rulesModal.addEventListener("click", (e) => {
+      if (e.target === rulesModal) closeRules();
+    });
+
+    // ESC로 닫기
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !rulesModal.classList.contains("hidden")) closeRules();
     });
   }
 
