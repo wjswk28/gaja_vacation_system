@@ -67,11 +67,33 @@
 
     {% if union_members %}
       <div class="flex flex-wrap gap-2 mb-4">
-        {% for name, amount in union_members %}
-          <span class="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full font-medium text-sm shadow-sm">
-            💝 {{ name }} ({{ "{:,}".format(amount) }}원)
+        {% for name, amount, years in union_members %}
+          <span class="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full font-medium text-sm shadow-sm
+                      inline-flex items-center gap-1">
+            <i data-lucide="gift" class="w-4 h-4"></i>
+
+            <span>{{ name }}</span>
+
+            {% if years >= 10 %}
+              <span class="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold
+                          bg-gradient-to-r from-amber-100 to-yellow-50 text-amber-900 border border-amber-200">
+                <i data-lucide="award" class="w-3.5 h-3.5"></i>
+                10년↑
+              </span>
+            {% elif years >= 3 %}
+              <span class="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold
+                          bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <i data-lucide="badge-check" class="w-3.5 h-3.5"></i>
+                3년↑
+              </span>
+            {% endif %}
+
+            <span class="ml-1 text-emerald-800 font-bold">
+              ({{ "{:,}".format(amount) }}원)
+            </span>
           </span>
         {% endfor %}
+
       </div>
       <div class="text-slate-700 text-sm md:text-base">
         총 {{ union_members|length }}명 /
