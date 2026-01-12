@@ -5,7 +5,8 @@ from app import db
 from app.models import MutualAidOfficer, MutualAidLedger, User, MutualAidYearFinal
 from . import mutual_aid_bp
 from sqlalchemy import func, case
-from flask import redirect, url_for, flash
+from flask import redirect, url_for, flash, current_app, send_from_directory, abort
+import os
 
 def get_active_officers_obj(year: int):
     officers = MutualAidOfficer.query.filter_by(active=True, year=year).all()
@@ -75,6 +76,10 @@ def index():
     # 선택년도도 혹시 빠졌으면 포함
     if selected_year not in years:
         years.append(selected_year)
+
+    # ✅ PDF 연도(2017~2023)도 드롭바에 항상 표시
+    for y in range(2017, 2024):
+        years.append(y)
 
     years = sorted(set(years))
 
@@ -148,6 +153,22 @@ def index():
         is_finalized=is_finalized,
     )
 
+@mutual_aid_bp.route("/pdf/<int:year>", methods=["GET"])
+@login_required
+def mutual_pdf(year):
+    # ✅ PDF 제공 연도 제한
+    if year < 2017 or year > 2023:
+        abort(404)
+
+    pdf_dir = "/var/data/pdfs/mutual"
+    filename = f"mutual_{year}.pdf"   # mutual_2017.pdf ... mutual_2023.pdf
+
+    return send_from_directory(
+        pdf_dir,
+        filename,
+        mimetype="application/pdf",
+        as_attachment=False  # ✅ 다운로드로 주지 않고 브라우저에서 바로 보기
+    )
 
 @mutual_aid_bp.route("/admin/appoint", methods=["POST"])
 @login_required
