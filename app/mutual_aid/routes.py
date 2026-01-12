@@ -160,7 +160,7 @@ def mutual_pdf(year):
     if year < 2017 or year > 2023:
         abort(404)
 
-    pdf_dir = "/var/data/pdfs/mutual"
+    pdf_dir = os.path.join(current_app.static_folder, "pdfs", "mutual")
     filename = f"mutual_{year}.pdf"   # mutual_2017.pdf ... mutual_2023.pdf
 
     return send_from_directory(
@@ -405,4 +405,5 @@ def unfinalize_year(year):
         return jsonify({"status":"error","message":f"DB 오류: {e}"}), 500
 
     return jsonify({"status": "success", "message": f"{year}년 결산 해제 완료"})
+
 
