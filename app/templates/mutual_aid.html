@@ -22,6 +22,22 @@
         </div>
     </div>
 
+    {# ✅ 2017~2023은 PDF 열람 화면으로 전환 #}
+    {% if 2017 <= selected_year <= 2023 %}
+        {% set pdf_url = url_for('mutual_aid.mutual_pdf', year=selected_year) ~ '#toolbar=0&navpanes=0&scrollbar=0' %}
+
+        <div class="mt-4 w-full rounded-2xl border border-sky-100 overflow-hidden bg-slate-50"
+             style="height: calc(100vh - 190px);">
+            <iframe src="{{ pdf_url }}"
+                    class="w-full h-full border-0"
+                    loading="lazy"></iframe>
+        </div>
+
+        <p class="text-xs text-slate-500 mt-3 text-center md:text-left">
+            확대/축소: Ctrl + 마우스 휠(또는 트랙패드 핀치)
+        </p>
+    {% else %}
+
     <!-- ✅ 상조회장 지정 (총관리자만 변경 가능) -->
     <div class="card p-4 mb-4">
         <div class="font-bold text-slate-800 mb-3">상조회 운영자 지정</div>
@@ -252,6 +268,7 @@
         </div>
     {% endif %}
   </div>
+    {% endif %}
 </div>
 
 <!-- ✅ 수정 모달 -->
