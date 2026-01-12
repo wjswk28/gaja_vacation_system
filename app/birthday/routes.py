@@ -119,7 +119,7 @@ def birthday_report():
 
     # 총액 계산 (해당 월 생일자만)
     hospital_total = len(birthday_members) * 30000
-    union_total = sum(amount for _, amount in union_members)
+    union_total = sum(amount for _, amount, _ in union_members)
 
     # --------------------------------------------------
     # 3) 템플릿 렌더링
