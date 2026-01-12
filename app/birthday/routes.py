@@ -4,6 +4,7 @@ from flask import (
 )
 from flask_login import login_required
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from app.birthday import birthday_bp
 from app.models import User
 
@@ -20,7 +21,7 @@ def birthday_report():
     if not month:
         month = datetime.now().month
 
-    today = date.today()
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
 
     # --------------------------------------------------
     # 1) 생일자 목록 조회 (선택한 월만)
@@ -97,14 +98,24 @@ def birthday_report():
         if days_until_birthday >= 31:
             birthday_members.append(full_name)
 
-        # ❤️ 상조회 축하금: 180일/1095일 기준
+        # ❤️ 상조회 생일축하금: 6개월 이상 지급
+        # - 6개월~3년 미만: 5만원
+        # - 3년~10년 미만: 7만원
+        # - 10년 이상: 10만원
         if days_until_birthday >= 180:
-            if days_until_birthday < 1095:
-                amount = 50000
-            else:
-                amount = 70000
+            # ✅ 올해 생일 기준 근속 "만" 연수 계산(윤년/날짜오차 방지)
+            service_years = this_year_bday.year - join.year - (
+                (this_year_bday.month, this_year_bday.day) < (join.month, join.day)
+            )
 
-            union_members.append((full_name, amount))
+            if service_years >= 10:
+                amount = 100000
+            elif service_years >= 3:
+                amount = 70000
+            else:
+                amount = 50000
+
+            union_members.append((full_name, amount, service_years))
 
     # 총액 계산 (해당 월 생일자만)
     hospital_total = len(birthday_members) * 30000
