@@ -86,6 +86,7 @@ class Vacation(db.Model):
 
     user = db.relationship("User", foreign_keys=[user_id])
     target_user = db.relationship("User", foreign_keys=[target_user_id])
+    is_alt = db.Column(db.Boolean, default=False, nullable=False)  # ✅ 대체연차 처리 여부
 
 
 class NewHireChecklist(db.Model):
