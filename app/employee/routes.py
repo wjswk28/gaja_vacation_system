@@ -19,6 +19,8 @@ from sqlalchemy import or_, and_
 import os
 from werkzeug.utils import secure_filename
 import uuid
+import secrets
+import string
 
 # ✅ 한글(가나다) 정렬용 키
 def hangul_sort_key(text: str):
@@ -448,12 +450,18 @@ def edit_employee(emp_id):
         # 수정한 부서로 돌아가도록 dept 파라미터 전달
         return redirect(url_for("employee.employee_list", dept=emp.department))
 
-    # 🔹 GET → 수정 폼 렌더링 (employee + dept_list 넘겨주기)
+    # 🔹 GET → 수정 폼 렌더링
+    pw_reset_msg = session.pop("pw_reset_msg", None)
+    pw_reset_cat = session.pop("pw_reset_cat", None)
+
     return render_template(
         "edit_employee.html",
         employee=emp,
         dept_list=dept_list,
+        pw_reset_msg=pw_reset_msg,
+        pw_reset_cat=pw_reset_cat,
     )
+
 
 
 # =====================================
@@ -594,4 +602,48 @@ def delete_signature(user_id):
     db.session.commit()
 
     return jsonify({"status": "success", "message": "서명이 삭제되었습니다."})
+
+@employee_bp.route("/reset_password/<int:emp_id>", methods=["POST"])
+@login_required
+def reset_employee_password(emp_id):
+    # ✅ 총관리자만
+    if not current_user.is_superadmin:
+        flash("총관리자만 비밀번호 초기화가 가능합니다.", "error")
+        return redirect(url_for("employee.employee_list"))
+
+    emp = User.query.get_or_404(emp_id)
+
+    # ✅ 임시 비밀번호 생성 (영문+숫자 10자리)
+    alphabet = string.ascii_letters + string.digits
+    temp_pw = "".join(secrets.choice(alphabet) for _ in range(10))
+
+    # ✅ 비밀번호 교체
+    emp.password = temp_pw
+    db.session.commit()
+
+    # ✅ edit_employee와 동일한 dept_list 생성(렌더링에 필요)
+    base_departments = [
+        "의료진","임원진","수술실","물리치료","도수","외래","영상의학과","원무과","병동",
+        "총무과","심사과","홍보","진단검사","상담실","영양","약제부",
+    ]
+    db_departments = (
+        db.session.query(User.department)
+        .distinct()
+        .filter(User.department.isnot(None), User.department != "관리자")
+        .all()
+    )
+    db_dept_list = [row[0] for row in db_departments]
+    dept_list = sorted(set(base_departments + db_dept_list))
+
+    # ✅ redirect/flash 없이 “바로” 렌더링 (무조건 화면에 표시됨)
+    return render_template(
+        "edit_employee.html",
+        employee=emp,
+        dept_list=dept_list,
+        pw_reset_msg=f"✅ {emp.name or emp.username} 임시 비밀번호: {temp_pw}  (지금 복사해두세요)",
+        pw_reset_cat="success",
+    )
+
+
+
 
