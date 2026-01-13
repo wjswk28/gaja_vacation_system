@@ -340,10 +340,16 @@
       이 일정을 삭제하시겠습니까?
     </p>
     <div class="flex justify-center gap-3">
+      <button id="confirmConvertAlt"
+              class="hidden bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2 rounded-lg font-bold">
+        변경
+      </button>
+
       <button id="confirmDeleteYes"
               class="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-lg font-bold">
         삭제
       </button>
+
       <button id="confirmDeleteNo"
               class="bg-slate-300 hover:bg-slate-400 text-slate-800 px-5 py-2 rounded-lg font-semibold">
         취소
@@ -917,7 +923,8 @@ document.addEventListener("DOMContentLoaded", async function () {
                 const nameOnly = originalTitle.split("(")[0].trim(); // "오륜 (연차)" → "오륜"
                 titleEl.textContent = nameOnly;
             } else {
-                titleEl.textContent = originalTitle;
+                const isAlt = !!info.event.extendedProps.is_alt;
+                titleEl.textContent = isAlt ? `[대]${originalTitle}` : originalTitle;
             }
         }
 
@@ -1301,6 +1308,7 @@ document.addEventListener("DOMContentLoaded", async function () {
         const confirmText = document.getElementById("confirmDeleteText");
         const yesBtn = document.getElementById("confirmDeleteYes");
         const noBtn = document.getElementById("confirmDeleteNo");
+        const convertBtn = document.getElementById("confirmConvertAlt"); // ✅ 추가
 
         let mobileMsg = `"${eventTitle}" 일정을<br>삭제할까요?`;
         let desktopMsg = `"${eventTitle}" 일정을 삭제할까요?`;
@@ -1319,6 +1327,22 @@ document.addEventListener("DOMContentLoaded", async function () {
             </span>
         `;
         confirmModal.classList.remove("hidden");
+        // ✅ 총관리자만 "대체연차로 변경" 버튼 노출
+        const isAlt = !!info.event.extendedProps.is_alt;
+        const isSuper = ("{{ 'true' if current_user.is_superadmin else 'false' }}" === "true");
+
+        const isConvertibleType = [
+          "연차", "반차(전)", "반차(후)", "반반차", "토연차"
+        ].includes(eventType);
+
+        if (convertBtn) {
+          const showConvert = isSuper && isConvertibleType && !isAlt;
+          convertBtn.classList.toggle("hidden", !showConvert);
+
+          if (showConvert) {
+            confirmText.innerHTML += `<div class="mt-2 text-emerald-600 font-semibold">대체연차로 변경할까요?</div>`;
+          }
+        }
 
         yesBtn.onclick = async () => {
             confirmModal.classList.add("hidden");
@@ -1354,6 +1378,30 @@ document.addEventListener("DOMContentLoaded", async function () {
                 }
             }
         };
+        
+        if (convertBtn) {
+          convertBtn.onclick = async () => {
+            confirmModal.classList.add("hidden");
+
+            try {
+              const convertUrl =
+                "{{ url_for('vacation.convert_to_alt', event_id=0) }}".replace("0", eventId);
+
+              const res = await axios.post(convertUrl);
+              const data = res.data || {};
+
+              if (data.status === "success") {
+                showToast(data.message || "대체연차로 변경되었습니다.");
+              } else {
+                showToast(data.message || "변경 실패", "error");
+              }
+
+              await calendar.refetchEvents();
+            } catch (err) {
+              showToast(err?.response?.data?.message || "변경 중 오류", "error");
+            }
+          };
+        }
 
         noBtn.onclick = () => {
             confirmModal.classList.add("hidden");
