@@ -3,6 +3,20 @@
 {% block content %}
 <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-lg border border-sky-100 py-4 px-4 mt-[0px] sm:mt-[8px] md:mt-[8px]">
   <h2 class="text-xl font-bold text-slate-800 mb-6 text-center">직원 정보 수정</h2>
+  {% if pw_reset_msg %}
+    <div class="mb-4">
+      <div class="rounded-lg border px-4 py-3 text-sm
+        {% if pw_reset_cat == 'success' %}
+          border-emerald-200 bg-emerald-50 text-emerald-800
+        {% elif pw_reset_cat == 'error' %}
+          border-rose-200 bg-rose-50 text-rose-800
+        {% else %}
+          border-slate-200 bg-slate-50 text-slate-700
+        {% endif %}">
+        {{ pw_reset_msg }}
+      </div>
+    </div>
+  {% endif %}
 
   <form method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-5">
 
@@ -85,7 +99,6 @@
              class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition">
       <p class="text-xs text-slate-400 mt-1">예: 시스템 도입 이전에 사용한 연차 수를 입력하세요.</p>
     </div>
-
     <!-- ✅ 버튼 -->
     <div class="md:col-span-2 flex justify-between items-center mt-6">
       <a href="{{ url_for('employee.employee_list') }}"
@@ -96,5 +109,19 @@
       </button>
     </div>
   </form>
+  {% if current_user.is_superadmin %}
+    <div class="mt-3 flex justify-end">
+      <form method="POST"
+            action="{{ url_for('employee.reset_employee_password', emp_id=employee.id) }}"
+            onsubmit="return confirm('정말 비밀번호를 초기화할까요? 초기화 후 임시 비밀번호가 1회 표시됩니다.');">
+        <button type="submit"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm font-medium hover:bg-rose-100 transition">
+          <i data-lucide="key-round" class="w-4 h-4"></i>
+          비밀번호 초기화
+        </button>
+      </form>
+    </div>
+  {% endif %}
+
 </div>
 {% endblock %}
