@@ -338,6 +338,7 @@ def get_events():
             "memo": memo,
             "start_time": st,
             "end_time": en,
+            "is_alt": bool(getattr(e, "is_alt", False)),  # ✅ 추가
         })
 
     return jsonify(event_list)
