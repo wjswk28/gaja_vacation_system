@@ -321,21 +321,18 @@ def add_event():
         db.session.add(new_event)
 
         # =======================================================
-        # 🟦 연차 차감 (대체연차 우선)  *일정은 0이라 영향 없음*
+        # 🟦 연차 차감: ✅ 기본은 '일반 연차(remaining_days)'만 차감
         # =======================================================
         deduction = DEDUCTION_MAP.get(vac_type, 0)
 
         try:
             if deduction > 0:
-                alt = float(target_user.alt_leave or 0)
                 remain = float(target_user.remaining_days or 0)
+                target_user.remaining_days = max(-999, remain - deduction)
 
-                if alt >= deduction:
-                    target_user.alt_leave = alt - deduction
-                else:
-                    leftover = deduction - alt
-                    target_user.alt_leave = 0
-                    target_user.remaining_days = max(-999, remain - leftover)
+                # ✅ 새로 등록되는 휴가는 기본적으로 '대체연차 아님'
+                if hasattr(new_event, "is_alt"):
+                    new_event.is_alt = False
 
         except Exception as e:
             print("⚠️ 연차 차감 오류:", e)
@@ -389,6 +386,21 @@ def approve_event(event_id):
 
     return jsonify({"status": "success", "message": "승인되었습니다."})
 
+def _refund_days_for_event(event: Vacation):
+    deduction = DEDUCTION_MAP.get(event.type or "", 0)
+    if deduction <= 0:
+        return
+
+    # 대상자 찾기
+    target_user = event.target_user or User.query.get(event.target_user_id) or User.query.get(event.user_id)
+    if not target_user:
+        return
+
+    # ✅ 대체연차로 전환된 이벤트면 alt_leave 환급, 아니면 remaining_days 환급
+    if bool(getattr(event, "is_alt", False)):
+        target_user.alt_leave = float(target_user.alt_leave or 0) + deduction
+    else:
+        target_user.remaining_days = float(target_user.remaining_days or 0) + deduction
 
 # =======================================================
 # 휴가 삭제
@@ -415,6 +427,7 @@ def delete_event(event_id):
     if is_mine:
         was_approved = bool(event.approved)
 
+        _refund_days_for_event(event)   # ✅ 추가
         db.session.delete(event)
         db.session.commit()
 
@@ -428,7 +441,7 @@ def delete_event(event_id):
         # (위에서 탄력근무는 이미 차단했지만, 안전하게 한 번 더)
         if event.type == "탄력근무":
             return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
-
+        _refund_days_for_event(event)   # ✅ 추가
         db.session.delete(event)
         db.session.commit()
         return jsonify({"status": "success", "message": "일정이 삭제되었습니다."}), 200
@@ -437,7 +450,7 @@ def delete_event(event_id):
         # ✅ 중간관리자는 자기 부서 일정만 삭제 가능
         if (event.department or "").strip() != (current_user.department or "").strip():
             return jsonify({"status": "error", "message": "다른 부서 일정은 삭제할 수 없습니다."}), 403
-
+        _refund_days_for_event(event)   # ✅ 추가
         db.session.delete(event)
         db.session.commit()
         return jsonify({"status": "success", "message": "일정이 삭제되었습니다."}), 200
@@ -448,6 +461,49 @@ def delete_event(event_id):
         "status": "error",
         "message": "삭제 권한이 없습니다."
     }), 403
+
+@vacation_bp.route("/convert_to_alt/<int:event_id>", methods=["POST"])
+@login_required
+def convert_to_alt(event_id):
+    # ✅ 총관리자만
+    if not current_user.is_superadmin:
+        return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
+
+    event = Vacation.query.get_or_404(event_id)
+
+    # ✅ 월 잠금 체크 (총관리자만 수정 가능 정책이면 _block_if_locked가 알아서 처리)
+    blocked = _block_if_locked(event.department, event.start_date)
+    if blocked:
+        return blocked
+    
+    # ✅ 연차류만 대체연차로 전환 허용 (원하는 타입만)
+    CONVERTIBLE_TYPES = {"연차", "반차(전)", "반차(후)", "반반차", "토연차"}
+    if (event.type or "").strip() not in CONVERTIBLE_TYPES:
+        return jsonify({"status": "error", "message": "대체연차로 변경할 수 없는 일정입니다."}), 400
+
+    deduction = DEDUCTION_MAP.get(event.type or "", 0)
+    if deduction <= 0:
+        return jsonify({"status": "error", "message": "대체연차로 변경할 수 없는 일정입니다."}), 400
+
+    if getattr(event, "is_alt", False):
+        return jsonify({"status": "success", "message": "이미 대체연차로 처리된 휴가입니다."}), 200
+
+    target_user = event.target_user or User.query.get(event.target_user_id) or User.query.get(event.user_id)
+    if not target_user:
+        return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 400
+
+    alt = float(target_user.alt_leave or 0)
+    if alt < deduction:
+        return jsonify({"status": "error", "message": "대체연차가 부족합니다."}), 400
+
+    remain = float(target_user.remaining_days or 0)
+    target_user.remaining_days = max(-999, remain + deduction)
+    target_user.alt_leave = alt - deduction
+
+    event.is_alt = True
+
+    db.session.commit()
+    return jsonify({"status": "success", "message": "대체연차로 변경되었습니다."}), 200
 
 
 # =====================
