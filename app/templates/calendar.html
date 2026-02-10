@@ -1634,8 +1634,8 @@ document.addEventListener("DOMContentLoaded", async function () {
 
             // ✅ 총관리자일 때: 모달에서 선택한 부서/직원 사용
             const deptForSave = isSuperadmin
-            ? (document.getElementById("superDeptSelect")?.value || "{{ dept }}").trim()
-            : userDept; // ✅ 중간관리자/일반관리자는 '내 부서'로 고정 저장
+              ? (document.getElementById("superDeptSelect")?.value || "{{ dept }}").trim()
+              : (currentDept === "의료진" ? "의료진" : userDept);
 
             const superTargetName = isSuperadmin
               ? (document.getElementById("superUserSelect")?.value || "").trim()
