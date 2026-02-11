@@ -226,6 +226,12 @@
                                         onclick="deleteLedger(this.dataset.id)">
                                   삭제
                                 </button>
+                                <button type="button"
+                                        class="text-xs px-2 py-1 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+                                        data-id="{{ e.id }}"
+                                        onclick="openAttachModal(this.dataset.id)">
+                                  증빙
+                                </button>
                             </div>
                         </td>
                         {% endif %}
@@ -366,6 +372,45 @@
 
       <div class="px-4 py-2 text-xs text-slate-500">
         확대/축소: Ctrl + 마우스 휠(또는 트랙패드 핀치)
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ✅ 증빙 모달 -->
+<div id="attachModal" class="fixed inset-0 z-[9996] hidden">
+  <div class="absolute inset-0 bg-black/40"></div>
+
+  <div class="absolute left-1/2 top-20 -translate-x-1/2 w-[94%] max-w-3xl">
+    <div class="bg-white rounded-2xl shadow-xl border border-sky-100 overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b">
+        <div class="flex items-center gap-2">
+          <i data-lucide="paperclip" class="w-5 h-5 text-sky-700"></i>
+          <p class="font-bold text-slate-800">증빙 첨부</p>
+        </div>
+        <button type="button" class="px-3 py-1.5 rounded-lg hover:bg-slate-100 text-slate-700"
+                onclick="closeAttachModal()">닫기</button>
+      </div>
+
+      <input type="hidden" id="attachLedgerId" />
+
+      {% if can_edit and (not is_finalized) %}
+      <div class="p-4 border-b bg-slate-50">
+        <div class="flex flex-col md:flex-row md:items-center gap-2">
+          <input id="attachFiles" type="file" multiple
+                 class="block w-full text-sm" />
+          <button type="button"
+                  class="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700"
+                  onclick="uploadAttachments()">
+            업로드
+          </button>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">사진(JPG/PNG)·PDF 등을 여러 개 선택해 업로드할 수 있습니다.</p>
+      </div>
+      {% endif %}
+
+      <div class="p-4">
+        <div id="attachList" class="space-y-2"></div>
       </div>
     </div>
   </div>
@@ -600,5 +645,106 @@ async function deleteLedger(id) {
   maToast("삭제 완료");
   window.location.reload();
 }
+
+function closeAttachModal(){
+  document.getElementById("attachModal")?.classList.add("hidden");
+}
+
+async function openAttachModal(ledgerId){
+  ledgerId = Number(ledgerId || 0);
+  if (!ledgerId) { 
+    maToast("내역 ID가 없습니다.", false); 
+    return; 
+  }
+  
+  const modal = document.getElementById("attachModal");
+  const list = document.getElementById("attachList");
+  const hid = document.getElementById("attachLedgerId");
+  if (!modal || !list || !hid) return;
+
+  hid.value = String(ledgerId);
+  list.innerHTML = `<div class="text-sm text-slate-500">불러오는 중...</div>`;
+  modal.classList.remove("hidden");
+
+  const url = `{{ url_for('mutual_aid.ledger_attachments_list', ledger_id=0) }}`.replace("/0", `/${ledgerId}`);
+  const res = await fetch(url);
+  const data = await res.json().catch(()=> ({}));
+
+  if (!res.ok || data.status !== "success"){
+    maToast(data.message || "첨부 목록 불러오기 실패", false);
+    list.innerHTML = "";
+    return;
+  }
+
+  const items = data.items || [];
+  if (!items.length){
+    list.innerHTML = `<div class="text-sm text-slate-500">첨부된 증빙이 없습니다.</div>`;
+    return;
+  }
+
+  list.innerHTML = items.map(a => {
+    const name = a.name || "file";
+    const viewUrl = a.url;
+    return `
+      <div class="flex items-center justify-between gap-2 border border-sky-100 rounded-xl px-3 py-2">
+        <div class="min-w-0">
+          <a class="text-sm text-sky-700 hover:underline break-all" href="${viewUrl}" target="_blank">${name}</a>
+        </div>
+        {% if can_edit and (not is_finalized) %}
+        <button class="text-xs px-2 py-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50"
+                onclick="deleteAttachment(${a.id})">
+          삭제
+        </button>
+        {% endif %}
+      </div>
+    `;
+  }).join("");
+}
+
+async function uploadAttachments(){
+  const ledgerId = Number(document.getElementById("attachLedgerId")?.value || 0);
+  const inp = document.getElementById("attachFiles");
+  if (!ledgerId || !inp) return;
+
+  if (!inp.files || !inp.files.length){
+    maToast("파일을 선택해주세요.", false);
+    return;
+  }
+
+  const fd = new FormData();
+  for (const f of inp.files){
+    fd.append("files", f);
+  }
+
+  const url = `{{ url_for('mutual_aid.ledger_attachments_upload', ledger_id=0) }}`.replace("/0", `/${ledgerId}`);
+  const res = await fetch(url, { method:"POST", body: fd });
+  const data = await res.json().catch(()=> ({}));
+
+  if (!res.ok || data.status !== "success"){
+    maToast(data.message || "업로드 실패", false);
+    return;
+  }
+
+  maToast(data.message || "업로드 완료");
+  inp.value = "";
+  openAttachModal(ledgerId); // 목록 새로고침
+}
+
+async function deleteAttachment(attId){
+  if (!confirm("이 첨부파일을 삭제할까요?")) return;
+
+  const url = `{{ url_for('mutual_aid.attachment_delete', att_id=0) }}`.replace("/0", `/${attId}`);
+  const res = await fetch(url, { method:"POST" });
+  const data = await res.json().catch(()=> ({}));
+
+  if (!res.ok || data.status !== "success"){
+    maToast(data.message || "삭제 실패", false);
+    return;
+  }
+  maToast("첨부 삭제 완료");
+  const ledgerId = Number(document.getElementById("attachLedgerId")?.value || 0);
+  if (ledgerId) openAttachModal(ledgerId);
+}
+
 </script>
 {% endblock %}
