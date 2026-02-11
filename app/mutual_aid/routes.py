@@ -2,11 +2,12 @@ from datetime import datetime, date
 from flask import render_template, request, jsonify
 from flask_login import login_required, current_user
 from app import db
-from app.models import MutualAidOfficer, MutualAidLedger, User, MutualAidYearFinal
+from app.models import MutualAidOfficer, MutualAidLedger, User, MutualAidYearFinal, MutualAidAttachment
 from . import mutual_aid_bp
 from sqlalchemy import func, case
-from flask import redirect, url_for, flash, current_app, send_from_directory, abort
+from flask import redirect, url_for, flash, current_app, send_from_directory, abort, send_file
 import os
+import uuid
 
 def get_active_officers_obj(year: int):
     officers = MutualAidOfficer.query.filter_by(active=True, year=year).all()
@@ -28,6 +29,22 @@ def can_mutual_aid_edit(user, year: int):
     if (user.department or "").strip() == "총무과":
         return True
     return is_officer(user, "president", year=year)
+
+def _storage_root():
+    # 프로젝트 전체에서 STORAGE_ROOT를 쓰고 있으면 그걸 우선
+    root = current_app.config.get("STORAGE_ROOT") or os.environ.get("STORAGE_ROOT")
+    if root:
+        return root
+    # fallback: /var/data 우선
+    if os.path.isdir("/var/data"):
+        return "/var/data"
+    # 마지막 fallback
+    return current_app.instance_path
+
+def _attach_dir(ledger_id: int):
+    base = os.path.join(_storage_root(), "mutual_aid", "attachments", str(ledger_id))
+    os.makedirs(base, exist_ok=True)
+    return base
 
 @mutual_aid_bp.before_request
 @login_required
@@ -342,6 +359,124 @@ def ledger_update(ledger_id):
     db.session.commit()
     return jsonify({"status": "success", "message": "수정 완료"})
 
+@mutual_aid_bp.route("/ledger/<int:ledger_id>/attachments", methods=["GET"])
+@login_required
+def ledger_attachments_list(ledger_id):
+    row = MutualAidLedger.query.get(ledger_id)
+    if not row:
+        return jsonify({"status":"error","message":"내역을 찾을 수 없습니다."}), 404
+
+    # 열람 권한: 편집 권한자(총무과/상조회장) + 총관리자
+    if not (current_user.is_superadmin or can_mutual_aid_edit(current_user, row.year)):
+        return jsonify({"status":"error","message":"열람 권한이 없습니다."}), 403
+
+    items = []
+    for a in MutualAidAttachment.query.filter_by(ledger_id=row.id).order_by(MutualAidAttachment.id.desc()).all():
+        items.append({
+            "id": a.id,
+            "name": a.original_name,
+            "mime": a.mime_type,
+            "size": a.size or 0,
+            "url": url_for("mutual_aid.attachment_view", att_id=a.id),
+        })
+
+    return jsonify({"status":"success","items":items})
+
+@mutual_aid_bp.route("/ledger/<int:ledger_id>/attachments", methods=["POST"])
+@login_required
+def ledger_attachments_upload(ledger_id):
+    row = MutualAidLedger.query.get(ledger_id)
+    if not row:
+        return jsonify({"status":"error","message":"내역을 찾을 수 없습니다."}), 404
+
+    if not can_mutual_aid_edit(current_user, row.year):
+        return jsonify({"status":"error","message":"업로드 권한이 없습니다."}), 403
+
+    # 결산 잠금
+    if MutualAidYearFinal.query.filter_by(year=row.year, finalized=True).first():
+        return jsonify({"status":"error","message":f"{row.year}년은 결산되어 업로드할 수 없습니다."}), 400
+
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"status":"error","message":"파일이 없습니다."}), 400
+
+    saved = 0
+    base_dir = _attach_dir(row.id)
+
+    for f in files:
+        if not f or not f.filename:
+            continue
+
+        original = f.filename
+        ext = os.path.splitext(original)[1].lower()
+        stored = f"{uuid.uuid4().hex}{ext}"
+        path = os.path.join(base_dir, stored)
+
+        f.save(path)
+
+        att = MutualAidAttachment(
+            ledger_id=row.id,
+            original_name=original,
+            stored_name=stored,
+            mime_type=f.mimetype,
+            size=os.path.getsize(path),
+            uploaded_by_id=current_user.id,
+        )
+        db.session.add(att)
+        saved += 1
+
+    db.session.commit()
+    return jsonify({"status":"success","message":f"{saved}개 업로드 완료", "saved": saved})
+
+@mutual_aid_bp.route("/attachments/<int:att_id>", methods=["GET"])
+@login_required
+def attachment_view(att_id):
+    att = MutualAidAttachment.query.get(att_id)
+    if not att:
+        abort(404)
+
+    row = MutualAidLedger.query.get(att.ledger_id)
+    if not row:
+        abort(404)
+
+    if not (current_user.is_superadmin or can_mutual_aid_edit(current_user, row.year)):
+        abort(403)
+
+    path = os.path.join(_attach_dir(row.id), att.stored_name)
+    if not os.path.exists(path):
+        abort(404)
+
+    # inline=True: PDF/이미지면 브라우저에서 바로 열림
+    return send_file(path, mimetype=att.mime_type or "application/octet-stream", as_attachment=False)
+
+@mutual_aid_bp.route("/attachments/<int:att_id>/delete", methods=["POST"])
+@login_required
+def attachment_delete(att_id):
+    att = MutualAidAttachment.query.get(att_id)
+    if not att:
+        return jsonify({"status":"error","message":"첨부를 찾을 수 없습니다."}), 404
+
+    row = MutualAidLedger.query.get(att.ledger_id)
+    if not row:
+        return jsonify({"status":"error","message":"내역을 찾을 수 없습니다."}), 404
+
+    if not can_mutual_aid_edit(current_user, row.year):
+        return jsonify({"status":"error","message":"삭제 권한이 없습니다."}), 403
+
+    if MutualAidYearFinal.query.filter_by(year=row.year, finalized=True).first():
+        return jsonify({"status":"error","message":f"{row.year}년은 결산되어 삭제할 수 없습니다."}), 400
+
+    path = os.path.join(_attach_dir(row.id), att.stored_name)
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+        db.session.delete(att)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status":"error","message":f"삭제 실패: {e}"}), 500
+
+    return jsonify({"status":"success","message":"첨부 삭제 완료"})
 
 @mutual_aid_bp.route("/finalize/<int:year>", methods=["POST"])
 @login_required
