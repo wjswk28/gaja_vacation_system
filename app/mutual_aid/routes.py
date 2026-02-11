@@ -16,7 +16,7 @@ def get_active_officers_obj(year: int):
         if o.role in out:
             out[o.role] = o.user
     return out
-
+    
 def is_officer(user, role=None, year=None):
     q = MutualAidOfficer.query.filter_by(user_id=user.id, active=True)
     if year is not None:
@@ -540,5 +540,6 @@ def unfinalize_year(year):
         return jsonify({"status":"error","message":f"DB 오류: {e}"}), 500
 
     return jsonify({"status": "success", "message": f"{year}년 결산 해제 완료"})
+
 
 
