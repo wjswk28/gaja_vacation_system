@@ -509,15 +509,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ✅ 정관 모달 열기/닫기
+  // ✅ 정관: 모바일은 새탭, PC는 모달
   const openRulesBtn = document.getElementById("openRules");
   const rulesModal = document.getElementById("rulesModal");
   const closeRulesBtn = document.getElementById("closeRules");
 
   if (openRulesBtn && rulesModal && closeRulesBtn) {
+    const PDF_URL = "{{ url_for('static', filename='pdfs/mutual/mutual_rules.pdf') }}";
     const closeRules = () => rulesModal.classList.add("hidden");
 
-    openRulesBtn.addEventListener("click", () => rulesModal.classList.remove("hidden"));
+    openRulesBtn.addEventListener("click", () => {
+      // Tailwind md 기준(768px 미만 = 모바일)
+      if (window.matchMedia("(max-width: 767px)").matches) {
+        window.open(PDF_URL, "_blank", "noopener,noreferrer");
+        return;
+      }
+      rulesModal.classList.remove("hidden");
+    });
+
     closeRulesBtn.addEventListener("click", closeRules);
 
     // 바깥(오버레이) 클릭하면 닫기
