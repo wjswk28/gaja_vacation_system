@@ -297,9 +297,13 @@ def add_event():
         # =======================================================
         #  🟦 휴가 등록
         # =======================================================
+        # ✅ 등록자(작성자) / 대상자(일정 주인) 분리
+        creator_id = current_user.id
+        owner_id = target_user.id
+
         new_event = Vacation(
-            user_id=target_user.id,           # ✅ 대상자(실제 일정의 주인)
-            target_user_id=target_user.id,  # ✅ 대상자(실제 의료진/직원)
+            user_id=creator_id,          # ✅ 등록한 사람(중간관리자/총관리자/본인)
+            target_user_id=owner_id,     # ✅ 일정의 주인(의료진/직원)
             name=display_name,
             department=selected_dept,
             start_date=start_date,
@@ -307,6 +311,7 @@ def add_event():
             type=vac_type,
             approved=approved_status
         )
+
 
         # ✅ 일정이면 메모/시간 저장 (Vacation 모델 컬럼 있어야 함)
         if vac_type == "일정":
