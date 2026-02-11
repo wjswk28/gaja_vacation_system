@@ -3,6 +3,8 @@ from flask_login import UserMixin
 from datetime import datetime, date
 from app import db, login_manager
 from sqlalchemy.orm import validates
+import os
+import uuid
 
 # =====================
 # DB 모델
@@ -287,7 +289,24 @@ class MutualAidYearFinal(db.Model):
     finalized_at = db.Column(db.DateTime)
 
     finalized_by = db.relationship("User", foreign_keys=[finalized_by_id])
-       
+
+class MutualAidAttachment(db.Model):
+    __tablename__ = "mutual_aid_attachments"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    ledger_id = db.Column(db.Integer, db.ForeignKey("mutual_aid_ledger.id"), nullable=False, index=True)
+    ledger = db.relationship("MutualAidLedger", backref=db.backref("attachments", lazy=True, cascade="all, delete-orphan"))
+
+    original_name = db.Column(db.String(255), nullable=False)
+    stored_name = db.Column(db.String(255), nullable=False)   # uuid 기반 파일명
+    mime_type = db.Column(db.String(100), nullable=True)
+    size = db.Column(db.Integer, nullable=True)
+
+    uploaded_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    uploaded_by = db.relationship("User", foreign_keys=[uploaded_by_id])
+
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)      
 # =====================
 # 로그인 user loader
 # =====================
