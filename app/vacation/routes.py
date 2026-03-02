@@ -301,9 +301,10 @@ def add_event():
         creator_id = current_user.id
         owner_id = target_user.id
 
+        # ✅ 재발 방지 핵심: 일정의 "주인"을 user_id로도 저장
         new_event = Vacation(
-            user_id=creator_id,          # ✅ 등록한 사람(중간관리자/총관리자/본인)
-            target_user_id=owner_id,     # ✅ 일정의 주인(의료진/직원)
+            user_id=owner_id,          # ✅ 항상 주인
+            target_user_id=owner_id,   # ✅ 항상 주인
             name=display_name,
             department=selected_dept,
             start_date=start_date,
