@@ -38,6 +38,12 @@ def _month_range(year: int, month: int):
     last_day = calendar.monthrange(year, month)[1]
     return date(year, month, 1), date(year, month, last_day)
 
+def last_weekday_of_month(year: int, month: int) -> date:
+    last_day = calendar.monthrange(year, month)[1]
+    d = date(year, month, last_day)
+    while d.weekday() >= 5:  # 5=토, 6=일
+        d -= timedelta(days=1)
+    return d
 
 def _expand_days_in_month(start: date, end: date, first: date, last: date):
     s = max(start, first)
@@ -186,6 +192,10 @@ def build_vacation_forms_xlsx(
         al.vertical = "center"
         al.wrap_text = True
         ws["C17"].alignment = al
+
+        # ✅ [B23] 작성일 = 해당 월의 마지막 평일(토/일 제외)
+        last_wd = last_weekday_of_month(year, month)
+        ws["B23"].value = f"{last_wd.year}. {last_wd.month}. {last_wd.day}"
 
         # ✅ [B25] 신청인         (fullname)(서명)  (공백 9칸, 오른쪽 정렬)
         ws["B25"].value = f"신청인{' ' * 9}{full_name}(서명)"
