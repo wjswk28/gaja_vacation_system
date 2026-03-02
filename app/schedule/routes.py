@@ -187,12 +187,12 @@ def export_schedule(dept):
                     # ✅ 퇴사자/매칭불가/레거시(등록자 user_id만 있는 것)는 스킵
                     continue
 
-        # ✅ 휴가류: user_id 우선 (표시/합계 기준 통일)
         else:
-            uid = getattr(e, "user_id", None)
+            # ✅ 휴가/연차류는 "일정 주인"이 target_user_id 이므로 이걸 우선 사용
+            uid = getattr(e, "target_user_id", None) or getattr(e, "user_id", None)
             idx = id_to_idx.get(uid)
 
-            # 예전 데이터 호환: user_id가 비어있거나 꼬였으면 name fallback
+            # 레거시 보완: id 매칭이 안되면 name fallback
             if idx is None:
                 idx = find_name_index((e.name or "").strip(), names)
 
@@ -239,10 +239,14 @@ def export_schedule(dept):
     for i, user in enumerate(employees):
         row = 8 + i
 
-        # 이 직원의 이벤트만 선택 (ID 기반 → 100% 정확)
+        # ✅ 이 직원의 이벤트만 선택: 휴가/연차는 target_user_id(주인) 우선
         user_events = [
             v for v in events
-            if v.user_id == user.id and v.start_date.month == month
+            if (
+                getattr(v, "target_user_id", None) == user.id
+                or (getattr(v, "target_user_id", None) in (None, 0) and v.user_id == user.id)
+            )
+            and v.start_date.month == month
         ]
 
         # 연차 합계 (반차 합치기 / 토연차 0.75 반영)
