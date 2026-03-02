@@ -1,6 +1,6 @@
 from flask import request, jsonify, send_file, current_app
 from flask_login import login_required
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from app.schedule import schedule_bp
 from app.models import User, Vacation, MonthLock, MonthSignToggle, ApprovalRoleUser
 from app.schedule.utils import (
@@ -12,7 +12,6 @@ from app.schedule.utils import (
 import calendar
 import io
 import os
-import re
 from app import db
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
@@ -30,12 +29,6 @@ def apply_vertical_border(cell, left=False, right=False):
         top=cell.border.top,
         bottom=cell.border.bottom
     )
-def last_weekday_of_month(y: int, m: int) -> date:
-    last_day = calendar.monthrange(y, m)[1]
-    d = date(y, m, last_day)
-    while d.weekday() >= 5:   # 5=토, 6=일
-        d -= timedelta(days=1)
-    return d
 
 LEFT_MEDIUM_COLS = [1]  # A열 왼쪽 굵은선
 RIGHT_MEDIUM_COLS = [2, 33, 34, 35, 36]  # B, AG, AH, AI, AJ 열 오른쪽 굵은선
@@ -71,10 +64,6 @@ def export_schedule(dept):
 
     # 제목 자동 갱신
     ws["A1"] = f"{year}년 {month}월 근무표 (부서: {dept})"
-
-    # ✅ 작성일(B23) = 해당 월의 마지막 평일(토/일 제외)
-    last_wd = last_weekday_of_month(year, month)
-    ws["B23"].value = f"{last_wd.year}. {last_wd.month}. {last_wd.day}"
 
     # ====== 날짜 라벨(C7~) ======
     start_col = 3  # C열부터 날짜
