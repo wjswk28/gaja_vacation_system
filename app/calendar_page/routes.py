@@ -292,7 +292,12 @@ def get_events():
 
     event_list = []
     for e in filtered:
-        name = e.name or "이름없음"
+        # ✅ 표시 이름은 "일정 주인" 기준으로 통일 (DB name 흔들림 방지)
+        owner = None
+        if getattr(e, "target_user_id", None):
+            owner = User.query.get(e.target_user_id)
+        elif getattr(e, "user_id", None):
+            owner = User.query.get(e.user_id)
         etype = e.type or "기타"
         approved = getattr(e, "approved", False)
 
@@ -304,7 +309,8 @@ def get_events():
         end = (e.end_date + timedelta(days=1)).isoformat()
 
 
-        short_name = name[-2:] if len(name) > 2 else name
+        display_name = (owner.first_name or owner.name or owner.username or e.name or "이름없음").strip()
+        short_name = display_name[-2:] if len(display_name) > 2 else display_name
 
         # ✅ 일정 메모/시간 가져오기 (없으면 빈값)
         memo = (getattr(e, "memo", "") or "").strip()
