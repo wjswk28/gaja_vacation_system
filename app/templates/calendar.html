@@ -1030,7 +1030,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       // ⭐ 휴가 버튼 보이기/숨기기 — 일반 직원에게만 적용
       const vacBtns = document.querySelectorAll(".vac-btn");
 
-      const TOYEONCHA_DEPTS = ["원무과", "물리치료실", "영상의학과", "심사과", "외래", "진단검사"];
+      const TOYEONCHA_DEPTS = ["원무과", "물리치료실", "영상의학과", "심사과", "외래", "진단검사", "상담실"];
 
       // 관리자 / 슈퍼관리자는 버튼 숨김 로직을 아예 적용하지 않음!!
       if (!(isAdmin || isSuperadmin)) {
@@ -1983,7 +1983,7 @@ function openAdminModal(dateStr) {
   // ==========================
   // ⭐ 휴가 종류 버튼 필터링
   // ==========================
-  const TOYEONCHA_DEPTS = ["원무과", "물리치료실", "영상의학과", "심사과", "외래", "진단검사"];
+  const TOYEONCHA_DEPTS = ["원무과", "물리치료실", "영상의학과", "심사과", "외래", "진단검사", "상담실"];
   
   const vacBtns = document.querySelectorAll("#vacationTab .vac-btn");
   
