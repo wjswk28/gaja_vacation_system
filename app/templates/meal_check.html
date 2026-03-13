@@ -44,24 +44,28 @@
         </colgroup>
         <thead>
           <tr>
-            <th>부 서</th>
-            <th>이 름</th>
-            <th>서 명</th>
-            <th>부 서</th>
-            <th>이 름</th>
-            <th>서 명</th>
-            <th>부 서</th>
-            <th>이 름</th>
-            <th>서 명</th>
+            <th>부서</th>
+            <th>이름</th>
+            <th>sign</th>
+            <th>부서</th>
+            <th>이름</th>
+            <th>sign</th>
+            <th>부서</th>
+            <th>이름</th>
+            <th>sign</th>
           </tr>
         </thead>
         <tbody>
           {% for row in rows %}
           <tr>
             {% for item in row %}
-              <td>{{ item.department }}</td>
-              <td>{{ item.name }}</td>
-              <td class="sign-cell"></td>
+              <td class="dept-cell {% if item.dept_start %}dept-start{% endif %}">
+                {{ item.department }}
+              </td>
+              <td class="name-cell {% if item.dept_start %}dept-start{% endif %}">
+                {{ item.name }}
+              </td>
+              <td class="sign-cell {% if item.dept_start %}dept-start{% endif %}"></td>
             {% endfor %}
           </tr>
           {% endfor %}
@@ -140,12 +144,32 @@
     font-weight: 700;
   }
 
+  .sign-cell {
+    background-image: linear-gradient(to bottom, transparent 92%, #94a3b8 92%);
+    background-size: 100% 100%;
+  }
+
   .sheet-note {
     margin-top: 6px;
     font-size: 11px;
     color: #475569;
   }
 
+  .dept-cell,
+  .name-cell,
+  .sign-cell {
+    transition: none;
+  }
+
+  .dept-start {
+    border-top: 2.5px solid #0f172a !important;
+  }
+
+  .dept-cell.dept-start {
+    font-weight: 800;
+    background: #f8fafc;
+  }
+  
   @page {
     size: A4 portrait;
     margin: 8mm;
@@ -200,5 +224,4 @@
     }
   }
 </style>
-
 {% endblock %}
