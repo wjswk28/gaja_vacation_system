@@ -71,12 +71,22 @@
     <!-- 버튼 영역 -->
     <div class="flex justify-center gap-2 mt-1 md:mt-2 flex-wrap">
       {% if current_user.is_admin or current_user.is_superadmin %}
-      <!-- 프린트 버튼 -->
+
+      {% if dept == "영양" %}
+      <!-- 영양부 전용: 식수인원 버튼 -->
+      <button id="mealCountBtn"
+        class="flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-full transition">
+        <i data-lucide="utensils-crossed" class="w-5 h-5"></i>
+        <span class="hidden md:inline">식수인원</span>
+      </button>
+      {% else %}
+      <!-- 다른 부서는 기존 유지 -->
       <button id="exportExcelBtn"
         class="flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-full transition">
         <i data-lucide="printer" class="w-5 h-5"></i>
         <span class="hidden md:inline">근무표 출력</span>
       </button>
+      {% endif %}
 
       <!-- 전체/내 일정 토글 버튼 -->
       <button id="toggleViewBtn"
@@ -1422,7 +1432,7 @@ document.addEventListener("DOMContentLoaded", async function () {
   // ✅ 최초 1회 확정 버튼 상태 세팅
   await updateConfirmButtonState();
 
-  // ⭐ 근무표 출력 버튼 - 단일 이벤트만 등록
+  // ⭐ 근무표 출력 / 식수인원 버튼
   document.getElementById("exportExcelBtn")?.addEventListener("click", () => {
       const dept = "{{ dept }}".trim();
       if (!dept) {
@@ -1434,8 +1444,11 @@ document.addEventListener("DOMContentLoaded", async function () {
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
 
-      // 📌 블루프린트 라우트 경로로 수정
       window.location.href = `/schedule/export/${encodeURIComponent(dept)}?year=${year}&month=${month}`;
+  });
+
+  document.getElementById("mealCountBtn")?.addEventListener("click", () => {
+      window.location.href = "{{ url_for('calendar.meal_check_page') }}";
   });
 
 
