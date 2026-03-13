@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}식수인원 체크{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-3 py-4 meal-page">
+
+  <!-- 화면용 상단 버튼 -->
+  <div class="flex justify-center md:justify-end gap-2 mb-4 print-hide">
+    <button onclick="window.print()"
+      class="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-full transition">
+      <i data-lucide="printer" class="w-4 h-4"></i>
+      <span>출력</span>
+    </button>
+
+    <button onclick="window.history.back()"
+      class="inline-flex items-center gap-2 bg-slate-300 hover:bg-slate-400 text-slate-800 px-4 py-2 rounded-full transition">
+      <i data-lucide="arrow-left" class="w-4 h-4"></i>
+      <span>뒤로</span>
+    </button>
+  </div>
+
+  <!-- A4 본문 -->
+  <div class="meal-sheet bg-white rounded-2xl shadow-md border border-slate-200 mx-auto">
+    <div class="sheet-inner">
+
+      <!-- 상단 헤더 -->
+      <div class="sheet-header">
+        <div class="sheet-date">{{ today_text }}</div>
+        <div class="sheet-total">오늘 총 식수인원 : {{ total_count }}명</div>
+      </div>
+
+      <!-- 본문 표 -->
+      <table class="meal-table">
+        <colgroup>
+          <col style="width: 11%">
+          <col style="width: 11%">
+          <col style="width: 11%">
+          <col style="width: 11%">
+          <col style="width: 11%">
+          <col style="width: 11%">
+          <col style="width: 11%">
+          <col style="width: 11%">
+          <col style="width: 12%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>부서</th>
+            <th>이름</th>
+            <th>sign</th>
+            <th>부서</th>
+            <th>이름</th>
+            <th>sign</th>
+            <th>부서</th>
+            <th>이름</th>
+            <th>sign</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            {% for item in row %}
+              <td>{{ item.department }}</td>
+              <td>{{ item.name }}</td>
+              <td class="sign-cell"></td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+
+          <!-- 하단 추가 빈칸 -->
+          {% for _ in range(extra_blank_rows) %}
+          <tr>
+            <td></td><td></td><td class="sign-cell"></td>
+            <td></td><td></td><td class="sign-cell"></td>
+            <td></td><td></td><td class="sign-cell"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="sheet-note">
+        ※ 예외 식사자는 하단 빈칸에 수기로 추가
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .meal-sheet {
+    width: 210mm;
+    min-height: 297mm;
+    max-width: 100%;
+  }
+
+  .sheet-inner {
+    padding: 10mm 10mm 8mm 10mm;
+  }
+
+  .sheet-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .sheet-date {
+    font-size: 18px;
+  }
+
+  .sheet-total {
+    font-size: 18px;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .meal-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 12px;
+    color: #0f172a;
+  }
+
+  .meal-table th,
+  .meal-table td {
+    border: 1px solid #334155;
+    padding: 4px 4px;
+    text-align: center;
+    vertical-align: middle;
+    height: 28px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .meal-table thead th {
+    background: #e0f2fe;
+    font-weight: 700;
+  }
+
+  .sign-cell {
+    background-image: linear-gradient(to bottom, transparent 92%, #94a3b8 92%);
+    background-size: 100% 100%;
+  }
+
+  .sheet-note {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #475569;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  @media print {
+    html, body {
+      background: white !important;
+      margin: 0;
+      padding: 0;
+    }
+
+    .print-hide,
+    nav,
+    .bottom-nav,
+    header,
+    footer {
+      display: none !important;
+    }
+
+    .meal-page {
+      margin: 0 !important;
+      padding: 0 !important;
+      max-width: none !important;
+    }
+
+    .meal-sheet {
+      width: 100% !important;
+      min-height: auto !important;
+      border: 0 !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+    }
+
+    .sheet-inner {
+      padding: 0 !important;
+    }
+
+    .meal-table {
+      font-size: 11px;
+    }
+
+    .meal-table th,
+    .meal-table td {
+      height: 25px;
+      padding: 3px 3px;
+    }
+
+    .sheet-date,
+    .sheet-total {
+      font-size: 16px;
+    }
+  }
+</style>
+{% endblock %}
