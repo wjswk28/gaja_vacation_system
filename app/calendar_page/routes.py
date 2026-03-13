@@ -208,46 +208,10 @@ def meal_check_page():
         if not display_name or not dept_name:
             continue
 
-        meal_users = []
-        prev_dept = None
-
-        for u in users:
-            if u.id in excluded_user_ids:
-                continue
-
-            dept_name = (u.department or "").strip()
-            if not dept_name:
-                continue
-
-            last_name = (getattr(u, "last_name", "") or "").strip()
-            first_name = (getattr(u, "first_name", "") or "").strip()
-            name = (getattr(u, "name", "") or "").strip()
-            username = (getattr(u, "username", "") or "").strip()
-
-            if last_name and first_name:
-                display_name = f"{last_name}{first_name}"
-            elif name:
-                display_name = name
-            elif first_name:
-                display_name = first_name
-            else:
-                display_name = username
-
-            if not display_name:
-                continue
-
-            meal_users.append({
-                "department": dept_name,
-                "name": display_name,
-            })
-
-        meal_users.sort(key=lambda x: (x["department"], x["name"]))
-
-        # 부서 시작 여부 표시
-        prev_dept = None
-        for item in meal_users:
-            item["dept_start"] = item["department"] != prev_dept
-            prev_dept = item["department"]
+        meal_users.append({
+            "department": dept_name,
+            "name": display_name
+        })
 
     # 4) 부서/이름 순 정렬
     meal_users.sort(key=lambda x: (x["department"], x["name"]))
@@ -257,13 +221,9 @@ def meal_check_page():
     for i in range(0, len(meal_users), 3):
         chunk = meal_users[i:i+3]
         while len(chunk) < 3:
-            chunk.append({
-                "department": "",
-                "name": "",
-                "dept_start": False
-        })
-    rows.append(chunk)
-    
+            chunk.append({"department": "", "name": ""})
+        rows.append(chunk)
+
     # 6) 하단 추가 빈칸 (예외 식사자 수기 작성용)
     extra_blank_rows = 3
 
