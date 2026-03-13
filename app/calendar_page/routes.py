@@ -6,7 +6,8 @@ from flask import (
     request,
     jsonify,
     session,
-    current_app
+    current_app,
+    abort
 )
 from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
@@ -14,7 +15,7 @@ import calendar
 from app.calendar_page import calendar_bp
 from app.models import Vacation, User, MonthLock, UserMonthConfirm
 from app import db
-
+from collections import OrderedDict
 
 # ======================================
 #  메인 캘린더 페이지 (예전 로직 이식)
@@ -120,6 +121,110 @@ def calendar_page():
         is_admin=user.is_admin,
         is_superadmin=user.is_superadmin,
         dept_list=dept_list,
+    )
+
+@calendar_bp.route("/meal-check")
+@login_required
+def meal_check_page():
+    """
+    영양부 전용 식수인원 체크 페이지
+    - 오늘 날짜 기준
+    - 재직 중인 직원 전체 대상
+    - master 제외
+    - 연차 / 반차(전) / 반차(후) / 대체연차 제외
+    - 식수 대상자만 출력
+    - 1줄 3칸(A4 세로) 출력용
+    """
+
+    selected_dept = (session.get("department") or current_user.department or "").strip()
+
+    # ✅ 영양 캘린더에서만 진입 허용
+    if selected_dept != "영양":
+        abort(403)
+
+    today = date.today()
+
+    # 1) 재직 중인 전체 직원 조회
+    users = (
+        User.query
+        .filter(User.employment_status == "재직")
+        .filter(User.username != "master")
+        .order_by(User.department.asc(), User.first_name.asc(), User.name.asc(), User.username.asc())
+        .all()
+    )
+
+    # 2) 오늘 제외 대상 휴가 조회
+    exclude_types = {"연차", "반차(전)", "반차(후)"}
+
+    vacations = (
+        Vacation.query
+        .filter(Vacation.start_date <= today, Vacation.end_date >= today)
+        .filter(Vacation.approved == True)
+        .all()
+    )
+
+    excluded_user_ids = set()
+
+    for v in vacations:
+        is_excluded = False
+
+        # 일반 제외 휴가
+        if (v.type or "").strip() in exclude_types:
+            is_excluded = True
+
+        # 대체연차 제외: 현재 시스템은 is_alt=True 로 관리 중
+        if bool(getattr(v, "is_alt", False)):
+            is_excluded = True
+
+        if not is_excluded:
+            continue
+
+        if getattr(v, "target_user_id", None):
+            excluded_user_ids.add(v.target_user_id)
+        elif getattr(v, "user_id", None):
+            excluded_user_ids.add(v.user_id)
+
+    # 3) 식수 대상자만 남기기
+    meal_users = []
+    for u in users:
+        if u.id in excluded_user_ids:
+            continue
+
+        display_name = (u.first_name or u.name or u.username or "").strip()
+        dept_name = (u.department or "").strip()
+
+        if not display_name or not dept_name:
+            continue
+
+        meal_users.append({
+            "department": dept_name,
+            "name": display_name
+        })
+
+    # 4) 부서/이름 순 정렬
+    meal_users.sort(key=lambda x: (x["department"], x["name"]))
+
+    # 5) 1줄 3칸용으로 3명씩 묶기
+    rows = []
+    for i in range(0, len(meal_users), 3):
+        chunk = meal_users[i:i+3]
+        while len(chunk) < 3:
+            chunk.append({"department": "", "name": ""})
+        rows.append(chunk)
+
+    # 6) 하단 추가 빈칸 (예외 식사자 수기 작성용)
+    extra_blank_rows = 3
+
+    weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
+    today_text = f"{today.year}년 {today.month}월 {today.day}일 {weekday_kr[today.weekday()]}요일"
+
+    return render_template(
+        "meal_check.html",
+        today=today,
+        today_text=today_text,
+        total_count=len(meal_users),
+        rows=rows,
+        extra_blank_rows=extra_blank_rows,
     )
 
 
