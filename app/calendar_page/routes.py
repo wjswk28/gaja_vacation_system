@@ -127,13 +127,13 @@ def calendar_page():
 @login_required
 def meal_check_page():
     """
-    영양부 전용 식수인원 체크 페이지
+    영양부 전용 식수인원 집계 페이지
     - 오늘 날짜 기준
-    - 재직 중인 직원 전체 대상
+    - 재직 직원 전체 대상
     - master 제외
-    - 연차 / 반차(전) / 반차(후) / 대체연차 제외
-    - 식수 대상자만 출력
-    - 1줄 3칸(A4 세로) 출력용
+    - 제외: 연차 / 반차(전) / 반차(후) / 대체연차 / 병가 / 예비군
+    - 부서별로 제외 인원 요약 카드 표시
+    - 0명인 휴가 종류는 표시하지 않음
     """
 
     selected_dept = (session.get("department") or current_user.department or "").strip()
@@ -144,18 +144,29 @@ def meal_check_page():
 
     today = date.today()
 
-    # 1) 재직 중인 전체 직원 조회
+    # -----------------------------
+    # 1) 재직 직원 전체 조회 (master 제외)
+    # -----------------------------
     users = (
         User.query
         .filter(User.employment_status == "재직")
         .filter(User.username != "master")
-        .order_by(User.department.asc(), User.first_name.asc(), User.name.asc(), User.username.asc())
         .all()
     )
 
-    # 2) 오늘 제외 대상 휴가 조회
-    exclude_types = {"연차", "반차(전)", "반차(후)"}
+    user_map = {u.id: u for u in users}
 
+    # 부서별 전체 인원수
+    dept_total_map = {}
+    for u in users:
+        dept = (u.department or "").strip()
+        if not dept:
+            continue
+        dept_total_map[dept] = dept_total_map.get(dept, 0) + 1
+
+    # -----------------------------
+    # 2) 오늘 제외 대상 조회
+    # -----------------------------
     vacations = (
         Vacation.query
         .filter(Vacation.start_date <= today, Vacation.end_date >= today)
@@ -163,69 +174,100 @@ def meal_check_page():
         .all()
     )
 
+    # 부서별 집계
+    # 연차 / 반차 / 병가 / 예비군 / 대체연차
+    dept_stats = {
+        dept: {
+            "연차": 0,
+            "반차": 0,
+            "병가": 0,
+            "예비군": 0,
+            "대체연차": 0,
+        }
+        for dept in dept_total_map.keys()
+    }
+
     excluded_user_ids = set()
 
     for v in vacations:
-        is_excluded = False
-
-        # 일반 제외 휴가
-        if (v.type or "").strip() in exclude_types:
-            is_excluded = True
-
-        # 대체연차 제외: 현재 시스템은 is_alt=True 로 관리 중
-        if bool(getattr(v, "is_alt", False)):
-            is_excluded = True
-
-        if not is_excluded:
+        target_uid = getattr(v, "target_user_id", None) or getattr(v, "user_id", None)
+        if not target_uid:
             continue
 
-        if getattr(v, "target_user_id", None):
-            excluded_user_ids.add(v.target_user_id)
-        elif getattr(v, "user_id", None):
-            excluded_user_ids.add(v.user_id)
-
-    # 3) 식수 대상자만 남기기
-    meal_users = []
-    for u in users:
-        if u.id in excluded_user_ids:
+        user = user_map.get(target_uid)
+        if not user:
             continue
 
-        last_name = (getattr(u, "last_name", "") or "").strip()
-        first_name = (getattr(u, "first_name", "") or "").strip()
-        name = (getattr(u, "name", "") or "").strip()
-        username = (getattr(u, "username", "") or "").strip()
-
-        if last_name and first_name:
-            display_name = f"{last_name}{first_name}"
-        elif name:
-            display_name = name
-        elif first_name:
-            display_name = first_name
-        else:
-            display_name = username
-        dept_name = (u.department or "").strip()
-
-        if not display_name or not dept_name:
+        dept = (user.department or "").strip()
+        if not dept:
             continue
 
-        meal_users.append({
-            "department": dept_name,
-            "name": display_name
+        vtype = (v.type or "").strip()
+        is_alt = bool(getattr(v, "is_alt", False))
+
+        counted = False
+
+        # 대체연차는 is_alt 기준
+        if is_alt:
+            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
+            dept_stats[dept]["대체연차"] += 1
+            counted = True
+
+        # 일반 휴가 타입
+        elif vtype == "연차":
+            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
+            dept_stats[dept]["연차"] += 1
+            counted = True
+
+        elif vtype in {"반차", "반차(전)", "반차(후)", "반반차"}:
+            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
+            dept_stats[dept]["반차"] += 1
+            counted = True
+
+        elif vtype == "병가":
+            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
+            dept_stats[dept]["병가"] += 1
+            counted = True
+
+        elif vtype == "예비군":
+            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
+            dept_stats[dept]["예비군"] += 1
+            counted = True
+
+        if counted:
+            excluded_user_ids.add(user.id)
+
+    # -----------------------------
+    # 3) 부서 카드 데이터 만들기
+    # -----------------------------
+    dept_cards = []
+
+    for dept in sorted(dept_total_map.keys()):
+        total_staff = dept_total_map.get(dept, 0)
+        stat = dept_stats.get(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
+
+        excluded_count = sum(stat.values())
+        meal_count = max(total_staff - excluded_count, 0)
+
+        # 0명은 숨기고, 있는 항목만 표시
+        visible_items = []
+        for label in ["연차", "반차", "병가", "예비군", "대체연차"]:
+            cnt = stat.get(label, 0)
+            if cnt > 0:
+                visible_items.append({
+                    "label": label,
+                    "count": cnt
+                })
+
+        dept_cards.append({
+            "department": dept,
+            "total_staff": total_staff,
+            "meal_count": meal_count,
+            "excluded_count": excluded_count,
+            "items": visible_items
         })
 
-    # 4) 부서/이름 순 정렬
-    meal_users.sort(key=lambda x: (x["department"], x["name"]))
-
-    # 5) 1줄 3칸용으로 3명씩 묶기
-    rows = []
-    for i in range(0, len(meal_users), 3):
-        chunk = meal_users[i:i+3]
-        while len(chunk) < 3:
-            chunk.append({"department": "", "name": ""})
-        rows.append(chunk)
-
-    # 6) 하단 추가 빈칸 (예외 식사자 수기 작성용)
-    extra_blank_rows = 3
+    total_meal_count = sum(card["meal_count"] for card in dept_cards)
 
     weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
     today_text = f"{today.year}년 {today.month}월 {today.day}일 {weekday_kr[today.weekday()]}요일"
@@ -234,11 +276,9 @@ def meal_check_page():
         "meal_check.html",
         today=today,
         today_text=today_text,
-        total_count=len(meal_users),
-        rows=rows,
-        extra_blank_rows=extra_blank_rows,
+        total_meal_count=total_meal_count,
+        dept_cards=dept_cards,
     )
-
 
 @calendar_bp.route("/events")
 @login_required
