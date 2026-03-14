@@ -23,19 +23,24 @@
       오늘 총 식수 인원 : {{ total_meal_count }}명
     </div>
   </div>
+  <div class="mb-6">
+    <div class="rounded-2xl bg-sky-50 border border-sky-100 text-sky-800 px-4 py-3 text-sm md:text-base font-semibold">
+      {{ day_notice }}
+    </div>
+  </div>
 
   <!-- 부서 카드 -->
   <div class="meal-card-grid">
     {% for card in dept_cards %}
     <div class="meal-card">
       <div class="meal-card-head">
-        <div class="meal-card-title">{{ card["department"] }}</div>
-        <div class="meal-card-badge">식수 {{ card["meal_count"] }}명</div>
+        <div class="meal-card-title">{{ card.department }}</div>
+        <div class="meal-card-badge">식수 {{ card.meal_count }}명</div>
       </div>
 
       <div class="meal-card-body">
-        {% if card["items"] %}
-          {% for item in card["items"] %}
+        {% if card.items %}
+          {% for item in card.items %}
           <div class="meal-line">
             <span class="meal-label">{{ item.label }}</span>
             <span class="meal-value">{{ item.count }}명</span>
