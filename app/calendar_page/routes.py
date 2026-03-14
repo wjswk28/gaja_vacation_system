@@ -128,21 +128,23 @@ def calendar_page():
 def meal_check_page():
     """
     영양부 전용 식수인원 집계 페이지
-    - 오늘 날짜 기준
-    - 재직 직원 전체 대상
-    - master 제외
-    - 제외: 연차 / 반차(전) / 반차(후) / 대체연차 / 병가 / 예비군
-    - 부서별로 제외 인원 요약 카드 표시
-    - 0명인 휴가 종류는 표시하지 않음
+
+    규칙
+    - 평일(월~금): 전체 재직 - master - 제외휴가
+    - 토요일: 각 부서 '근무자' 수만 카운트
+      * 병동: 항상 3명 고정
+      * 약제부: 항상 0명
+    - 일요일: 식수인원 집계 안 함(0명)
     """
 
     selected_dept = (session.get("department") or current_user.department or "").strip()
-
-    # ✅ 영양 캘린더에서만 진입 허용
     if selected_dept != "영양":
         abort(403)
 
     today = date.today()
+    weekday = today.weekday()   # 월=0 ... 토=5, 일=6
+    is_saturday = (weekday == 5)
+    is_sunday = (weekday == 6)
 
     # -----------------------------
     # 1) 재직 직원 전체 조회 (master 제외)
@@ -165,17 +167,18 @@ def meal_check_page():
         dept_total_map[dept] = dept_total_map.get(dept, 0) + 1
 
     # -----------------------------
-    # 2) 오늘 제외 대상 조회
+    # 2) 오늘 승인된 일정 조회
     # -----------------------------
-    vacations = (
+    today_events = (
         Vacation.query
         .filter(Vacation.start_date <= today, Vacation.end_date >= today)
         .filter(Vacation.approved == True)
         .all()
     )
 
-    # 부서별 집계
-    # 연차 / 반차 / 병가 / 예비군 / 대체연차
+    # -----------------------------
+    # 3) 평일용 제외 집계
+    # -----------------------------
     dept_stats = {
         dept: {
             "연차": 0,
@@ -189,7 +192,7 @@ def meal_check_page():
 
     excluded_user_ids = set()
 
-    for v in vacations:
+    for v in today_events:
         target_uid = getattr(v, "target_user_id", None) or getattr(v, "user_id", None)
         if not target_uid:
             continue
@@ -204,33 +207,21 @@ def meal_check_page():
 
         vtype = (v.type or "").strip()
         is_alt = bool(getattr(v, "is_alt", False))
-
         counted = False
 
-        # 대체연차는 is_alt 기준
         if is_alt:
-            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
             dept_stats[dept]["대체연차"] += 1
             counted = True
-
-        # 일반 휴가 타입
         elif vtype == "연차":
-            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
             dept_stats[dept]["연차"] += 1
             counted = True
-
         elif vtype in {"반차", "반차(전)", "반차(후)", "반반차"}:
-            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
             dept_stats[dept]["반차"] += 1
             counted = True
-
         elif vtype == "병가":
-            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
             dept_stats[dept]["병가"] += 1
             counted = True
-
         elif vtype == "예비군":
-            dept_stats.setdefault(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
             dept_stats[dept]["예비군"] += 1
             counted = True
 
@@ -238,7 +229,56 @@ def meal_check_page():
             excluded_user_ids.add(user.id)
 
     # -----------------------------
-    # 3) 부서 카드 데이터 만들기
+    # 4) 토요일용 근무자 집계
+    #    - 근무자 일정은 type == "근무자"
+    #    - user_id / target_user_id가 있으면 그것으로 부서 판별
+    #    - 없으면 name으로 직원 찾아서 부서 판별
+    # -----------------------------
+    saturday_worker_count = {dept: 0 for dept in dept_total_map.keys()}
+    counted_worker_keys = set()  # 중복 방지
+
+    for ev in today_events:
+        if (ev.type or "").strip() != "근무자":
+            continue
+
+        worker_user = None
+
+        # 1순위: target_user_id / user_id
+        target_uid = getattr(ev, "target_user_id", None) or getattr(ev, "user_id", None)
+        if target_uid:
+            worker_user = user_map.get(target_uid)
+
+        # 2순위: name으로 직원 찾기
+        if not worker_user:
+            ev_name = (getattr(ev, "name", "") or "").strip()
+            if ev_name:
+                for u in users:
+                    candidate_names = {
+                        (u.first_name or "").strip(),
+                        (u.name or "").strip(),
+                        (u.username or "").strip(),
+                        f"{(u.last_name or '').strip()}{(u.first_name or '').strip()}".strip()
+                    }
+                    if ev_name in candidate_names:
+                        worker_user = u
+                        break
+
+        if not worker_user:
+            continue
+
+        dept = (worker_user.department or "").strip()
+        if not dept:
+            continue
+
+        dedup_key = (dept, worker_user.id)
+        if dedup_key in counted_worker_keys:
+            continue
+
+        counted_worker_keys.add(dedup_key)
+        saturday_worker_count[dept] = saturday_worker_count.get(dept, 0) + 1
+
+    # -----------------------------
+    # 5) 카드 데이터 만들기
     # -----------------------------
     dept_cards = []
 
@@ -246,10 +286,7 @@ def meal_check_page():
         total_staff = dept_total_map.get(dept, 0)
         stat = dept_stats.get(dept, {"연차": 0, "반차": 0, "병가": 0, "예비군": 0, "대체연차": 0})
 
-        excluded_count = sum(stat.values())
-        meal_count = max(total_staff - excluded_count, 0)
-
-        # 0명은 숨기고, 있는 항목만 표시
+        # 제외 항목 표시용(0명 숨김)
         visible_items = []
         for label in ["연차", "반차", "병가", "예비군", "대체연차"]:
             cnt = stat.get(label, 0)
@@ -259,11 +296,30 @@ def meal_check_page():
                     "count": cnt
                 })
 
+        # 요일별 식수 인원 계산
+        if is_sunday:
+            meal_count = 0
+
+        elif is_saturday:
+            if dept == "병동":
+                meal_count = 3
+            elif dept == "약제부":
+                meal_count = 0
+            else:
+                meal_count = saturday_worker_count.get(dept, 0)
+
+        else:
+            # 평일
+            if dept == "병동":
+                meal_count = 3
+            else:
+                excluded_count = sum(stat.values())
+                meal_count = max(total_staff - excluded_count, 0)
+
         dept_cards.append({
             "department": dept,
             "total_staff": total_staff,
             "meal_count": meal_count,
-            "excluded_count": excluded_count,
             "items": visible_items
         })
 
@@ -272,12 +328,23 @@ def meal_check_page():
     weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
     today_text = f"{today.year}년 {today.month}월 {today.day}일 {weekday_kr[today.weekday()]}요일"
 
+    # 화면 안내문
+    if is_sunday:
+        day_notice = "일요일은 식수인원을 집계하지 않습니다."
+    elif is_saturday:
+        day_notice = "토요일은 각 부서의 '근무자' 인원만 집계합니다. (병동 3명 고정, 약제부 0명)"
+    else:
+        day_notice = "평일은 재직 인원에서 연차·반차·병가·예비군·대체연차를 제외해 집계합니다."
+
     return render_template(
         "meal_check.html",
         today=today,
         today_text=today_text,
         total_meal_count=total_meal_count,
         dept_cards=dept_cards,
+        day_notice=day_notice,
+        is_saturday=is_saturday,
+        is_sunday=is_sunday,
     )
 
 @calendar_bp.route("/events")
