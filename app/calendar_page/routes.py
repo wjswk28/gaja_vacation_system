@@ -7,13 +7,16 @@ from flask import (
     jsonify,
     session,
     current_app,
-    abort
+    abort,
+    redirect,
+    url_for,
+    flash,
 )
 from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
 import calendar
 from app.calendar_page import calendar_bp
-from app.models import Vacation, User, MonthLock, UserMonthConfirm
+from app.models import Vacation, User, MonthLock, UserMonthConfirm, PracticeStudent
 from app import db
 from collections import OrderedDict
 
@@ -146,6 +149,14 @@ def meal_check_page():
     is_saturday = (weekday == 5)
     is_sunday = (weekday == 6)
 
+    active_students = (
+        PracticeStudent.query
+        .filter(PracticeStudent.start_date <= today, PracticeStudent.end_date >= today)
+        .order_by(PracticeStudent.start_date.asc(), PracticeStudent.name.asc())
+        .all()
+    )
+
+    practice_student_count = 0 if is_sunday else len(active_students)
     # -----------------------------
     # 1) 재직 직원 전체 조회 (master 제외)
     # -----------------------------
@@ -356,6 +367,21 @@ def meal_check_page():
             "items": visible_items
         })
 
+    practice_items = []
+    for s in active_students:
+        practice_items.append({
+            "label": s.name,
+            "count": f"{s.start_date.strftime('%m.%d')}~{s.end_date.strftime('%m.%d')}"
+        })
+
+    dept_cards.append({
+        "department": "실습학생",
+        "total_staff": practice_student_count,
+        "meal_count": practice_student_count,
+        "items": practice_items,
+        "is_practice_box": True,
+    })
+
     total_meal_count = sum(card["meal_count"] for card in dept_cards)
 
     weekday_kr = ["월", "화", "수", "목", "금", "토", "일"]
@@ -379,6 +405,66 @@ def meal_check_page():
         is_saturday=is_saturday,
         is_sunday=is_sunday,
     )
+
+@calendar_bp.route("/meal-students", methods=["GET", "POST"])
+@login_required
+def meal_students_page():
+    selected_dept = (session.get("department") or current_user.department or "").strip()
+    if selected_dept != "영양":
+        abort(403)
+
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        start_raw = (request.form.get("start_date") or "").strip()
+        end_raw = (request.form.get("end_date") or "").strip()
+
+        if not name or not start_raw or not end_raw:
+            flash("이름과 시작일, 종료일을 모두 입력해주세요.", "error")
+            return redirect(url_for("calendar.meal_students_page"))
+
+        try:
+            start_date = datetime.strptime(start_raw, "%Y-%m-%d").date()
+            end_date = datetime.strptime(end_raw, "%Y-%m-%d").date()
+        except ValueError:
+            flash("날짜 형식이 올바르지 않습니다.", "error")
+            return redirect(url_for("calendar.meal_students_page"))
+
+        if end_date < start_date:
+            flash("종료일은 시작일보다 빠를 수 없습니다.", "error")
+            return redirect(url_for("calendar.meal_students_page"))
+
+        db.session.add(
+            PracticeStudent(
+                name=name,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+        db.session.commit()
+        flash("실습학생이 등록되었습니다.", "success")
+        return redirect(url_for("calendar.meal_students_page"))
+
+    students = (
+        PracticeStudent.query
+        .order_by(PracticeStudent.start_date.desc(), PracticeStudent.id.desc())
+        .all()
+    )
+
+    return render_template("meal_students.html", students=students)
+
+
+@calendar_bp.route("/meal-students/<int:student_id>/delete", methods=["POST"])
+@login_required
+def delete_meal_student(student_id):
+    selected_dept = (session.get("department") or current_user.department or "").strip()
+    if selected_dept != "영양":
+        abort(403)
+
+    student = PracticeStudent.query.get_or_404(student_id)
+    db.session.delete(student)
+    db.session.commit()
+    flash("실습학생이 삭제되었습니다.", "success")
+    return redirect(url_for("calendar.meal_students_page"))
 
 @calendar_bp.route("/events")
 @login_required
