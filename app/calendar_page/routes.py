@@ -169,6 +169,13 @@ def meal_check_page():
 
     user_map = {u.id: u for u in users}
 
+    real_dept_total_map = {}
+    for u in users:
+        dept = (u.department or "").strip()
+        if not dept:
+            continue
+        real_dept_total_map[dept] = real_dept_total_map.get(dept, 0) + 1
+
     # 부서별 전체 인원수
     # ✅ 총무과는 풀네임이 '박상기'인 사용자만 포함
     dept_total_map = {}
@@ -322,6 +329,16 @@ def meal_check_page():
                 visible_items.append({
                     "label": label,
                     "count": cnt
+                })
+                
+        # 총무과는 박상기 외 인원은 식수 제외 → 금식으로 표시
+        if dept == "총무과":
+            real_total = real_dept_total_map.get("총무과", 0)
+            fasting_count = max(real_total - 1, 0)   # 박상기 1명 제외한 나머지
+            if fasting_count > 0:
+                visible_items.append({
+                    "label": "금식",
+                    "count": fasting_count
                 })
 
         # 요일별 식수 인원 계산
