@@ -35,31 +35,42 @@
     <div class="meal-card">
       <div class="meal-card-head">
         <div class="meal-card-title">{{ card["department"] }}</div>
-        <div class="meal-card-badge">식수 {{ card["meal_count"] }}명</div>
+
+        {% if card["department"] == "실습학생" %}
+          <div class="meal-card-badge">총 실습학생 {{ card["meal_count"] }}명</div>
+        {% else %}
+          <div class="meal-card-badge">식수 {{ card["meal_count"] }}명</div>
+        {% endif %}
       </div>
 
       <div class="meal-card-body">
-        {% if card["items"] %}
-          {% for item in card["items"] %}
-          <div class="meal-line">
-            <span class="meal-label">{{ item["label"] }}</span>
-            <span class="meal-value">
-              {% if card["department"] == "실습학생" %}
-                {{ item["count"] }}
-              {% else %}
-                {{ item["count"] }}명
-              {% endif %}
-            </span>
-          </div>
-          {% endfor %}
+        {% if card["department"] == "실습학생" %}
+          {% if card["items"] %}
+            {% for item in card["items"] %}
+            <div class="meal-line">
+              <span class="meal-label">{{ item["label"] }}</span>
+              <span class="meal-value">{{ item["count"] }}</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="meal-empty">등록된 실습학생 없음</div>
+          {% endif %}
         {% else %}
-          <div class="meal-empty">제외 인원 없음</div>
+          {% if card["items"] %}
+            {% for item in card["items"] %}
+            <div class="meal-line">
+              <span class="meal-label">{{ item["label"] }}</span>
+              <span class="meal-value">{{ item["count"] }}명</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="meal-empty">제외 인원 없음</div>
+          {% endif %}
         {% endif %}
       </div>
     </div>
     {% endfor %}
   </div>
-
   <div class="mt-8 flex justify-end">
     <a href="{{ url_for('calendar.meal_students_page') }}"
       class="inline-flex items-center gap-2 rounded-full bg-rose-500 hover:bg-rose-600 text-white px-5 py-2.5 font-semibold shadow-sm transition">
