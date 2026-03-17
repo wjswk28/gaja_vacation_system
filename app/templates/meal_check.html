@@ -43,7 +43,13 @@
           {% for item in card["items"] %}
           <div class="meal-line">
             <span class="meal-label">{{ item["label"] }}</span>
-            <span class="meal-value">{{ item["count"] }}명</span>
+            <span class="meal-value">
+              {% if card["department"] == "실습학생" %}
+                {{ item["count"] }}
+              {% else %}
+                {{ item["count"] }}명
+              {% endif %}
+            </span>
           </div>
           {% endfor %}
         {% else %}
@@ -52,6 +58,14 @@
       </div>
     </div>
     {% endfor %}
+  </div>
+
+  <div class="mt-8 flex justify-end">
+    <a href="{{ url_for('calendar.meal_students_page') }}"
+      class="inline-flex items-center gap-2 rounded-full bg-rose-500 hover:bg-rose-600 text-white px-5 py-2.5 font-semibold shadow-sm transition">
+      <i data-lucide="graduation-cap" class="w-4 h-4"></i>
+      <span>실습학생 등록</span>
+    </a>
   </div>
 </div>
 
