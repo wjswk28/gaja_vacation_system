@@ -35,26 +35,15 @@
     <div class="meal-card">
       <div class="meal-card-head">
         <div class="meal-card-title">{{ card["department"] }}</div>
-
-        {% if card["department"] == "실습학생" %}
-          <div class="meal-card-badge">총 실습학생 {{ card["meal_count"] }}명</div>
-        {% else %}
-          <div class="meal-card-badge">식수 {{ card["meal_count"] }}명</div>
-        {% endif %}
+        <div class="meal-card-badge">식수인원 {{ card["meal_count"] }}명</div>
       </div>
 
       <div class="meal-card-body">
         {% if card["department"] == "실습학생" %}
-          {% if card["items"] %}
-            {% for item in card["items"] %}
-            <div class="meal-line">
-              <span class="meal-label">{{ item["label"] }}</span>
-              <span class="meal-value">{{ item["count"] }}</span>
-            </div>
-            {% endfor %}
-          {% else %}
-            <div class="meal-empty">등록된 실습학생 없음</div>
-          {% endif %}
+          <div class="meal-line">
+            <span class="meal-label">총 실습학생</span>
+            <span class="meal-value">{{ card["items"]|length }}명</span>
+          </div>
         {% else %}
           {% if card["items"] %}
             {% for item in card["items"] %}
