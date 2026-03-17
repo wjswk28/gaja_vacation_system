@@ -159,12 +159,29 @@ def meal_check_page():
     user_map = {u.id: u for u in users}
 
     # 부서별 전체 인원수
+    # ✅ 총무과는 풀네임이 '박상기'인 사용자만 포함
     dept_total_map = {}
+    target_gm_user_id = None  # 총무과 식수 대상(박상기) 사용자 id
+
     for u in users:
         dept = (u.department or "").strip()
         if not dept:
             continue
+
+        full_name = f"{(u.last_name or '').strip()}{(u.first_name or '').strip()}".strip()
+        fallback_name = (u.name or "").strip()
+
+        # 총무과 특수 규칙
+        if dept == "총무과":
+            is_park_sanggi = (full_name == "박상기") or (fallback_name == "박상기")
+            if not is_park_sanggi:
+                continue
+            target_gm_user_id = u.id
+
         dept_total_map[dept] = dept_total_map.get(dept, 0) + 1
+
+    # ✅ 미화는 사용자 등록이 없어도 항상 카드 생성
+    dept_total_map["미화"] = 2
 
     # -----------------------------
     # 2) 오늘 승인된 일정 조회
@@ -305,6 +322,14 @@ def meal_check_page():
                 meal_count = 3
             elif dept == "약제부":
                 meal_count = 0
+            elif dept == "미화":
+                meal_count = 2
+            elif dept == "총무과":
+                # 토요일에도 박상기만 기준
+                if target_gm_user_id and target_gm_user_id not in excluded_user_ids:
+                    meal_count = 1
+                else:
+                    meal_count = 0
             else:
                 meal_count = saturday_worker_count.get(dept, 0)
 
@@ -312,6 +337,14 @@ def meal_check_page():
             # 평일
             if dept == "병동":
                 meal_count = 3
+            elif dept == "미화":
+                meal_count = 2
+            elif dept == "총무과":
+                # 박상기가 휴가가 아니면 항상 1명
+                if target_gm_user_id and target_gm_user_id not in excluded_user_ids:
+                    meal_count = 1
+                else:
+                    meal_count = 0
             else:
                 excluded_count = sum(stat.values())
                 meal_count = max(total_staff - excluded_count, 0)
