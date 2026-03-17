@@ -307,6 +307,19 @@ class MutualAidAttachment(db.Model):
     uploaded_by = db.relationship("User", foreign_keys=[uploaded_by_id])
 
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)      
+
+class PracticeStudent(db.Model):
+    __tablename__ = "practice_students"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), nullable=False)
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<PracticeStudent {self.name}>"
+    
 # =====================
 # 로그인 user loader
 # =====================
