@@ -14,6 +14,7 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 import calendar
 from app.calendar_page import calendar_bp
 from app.models import Vacation, User, MonthLock, UserMonthConfirm, PracticeStudent
@@ -144,7 +145,7 @@ def meal_check_page():
     if selected_dept != "영양":
         abort(403)
 
-    today = date.today()
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
     weekday = today.weekday()   # 월=0 ... 토=5, 일=6
     is_saturday = (weekday == 5)
     is_sunday = (weekday == 6)
@@ -722,7 +723,7 @@ def _can_confirm_target_month(year: int, month: int) -> bool:
       - '확정 대상 월(year, month)'의 29일 ~ (다음 달) 4일 까지 (포함)
       - 예) 2025년 11월 확정 가능: 2025-11-29 ~ 2025-12-04
     """
-    today = date.today()
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
 
     # month의 마지막 날짜(2월 등 예외 대비)
     last_day = calendar.monthrange(year, month)[1]
