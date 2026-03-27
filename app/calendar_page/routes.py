@@ -145,7 +145,18 @@ def meal_check_page():
     if selected_dept != "영양":
         abort(403)
 
-    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    # ✅ 기본은 한국 날짜, 선택값이 있으면 그 날짜 사용
+    default_today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+
+    selected_date_raw = (request.args.get("target_date") or "").strip()
+    if selected_date_raw:
+        try:
+            today = datetime.strptime(selected_date_raw, "%Y-%m-%d").date()
+        except ValueError:
+            today = default_today
+    else:
+        today = default_today
+
     weekday = today.weekday()   # 월=0 ... 토=5, 일=6
     is_saturday = (weekday == 5)
     is_sunday = (weekday == 6)
@@ -422,6 +433,7 @@ def meal_check_page():
         day_notice=day_notice,
         is_saturday=is_saturday,
         is_sunday=is_sunday,
+        selected_date_value=today.strftime("%Y-%m-%d"),
     )
 
 @calendar_bp.route("/meal-students", methods=["GET", "POST"])
