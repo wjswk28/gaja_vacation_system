@@ -14,18 +14,27 @@
     </h1>
   </div>
 
-  <!-- 날짜 / 총 식수인원 -->
-  <div class="flex items-center justify-between gap-3 mb-6 px-1">
-    <div class="text-slate-700 font-semibold text-base md:text-lg">
-      {{ today_text }}
-    </div>
+  <!-- 날짜 선택 / 총 식수인원 -->
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 px-1">
+    <form method="get" class="flex flex-col sm:flex-row sm:items-center gap-2">
+      <label for="target_date" class="text-slate-700 font-semibold text-sm md:text-base">
+        기준 날짜
+      </label>
+      <input
+        type="date"
+        id="target_date"
+        name="target_date"
+        value="{{ selected_date_value }}"
+        class="rounded-xl border border-slate-200 px-3 py-2 text-slate-700 font-semibold focus:outline-none focus:ring-2 focus:ring-sky-300"
+        onchange="this.form.submit()"
+      >
+      <div class="text-slate-700 font-semibold text-base md:text-lg">
+        {{ today_text }}
+      </div>
+    </form>
+
     <div class="text-sky-800 font-extrabold text-lg md:text-2xl">
       오늘 총 식수 인원 : {{ total_meal_count }}명
-    </div>
-  </div>
-  <div class="mb-6">
-    <div class="rounded-2xl bg-sky-50 border border-sky-100 text-sky-800 px-4 py-3 text-sm md:text-base font-semibold">
-      {{ day_notice }}
     </div>
   </div>
 
