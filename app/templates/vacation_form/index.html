@@ -172,36 +172,36 @@
           </button>
 
           <button type="button"
-                  data-dept-lock="1"
-                  data-dept="{{ item.dept }}"
-                  data-year="{{ year }}"
-                  data-month="{{ month }}"
-                  data-locked="{{ '1' if locked else '0' }}"
-                  class="dept-lock-btn inline-flex items-center justify-center
+                    data-dept-lock="1"
+                    data-dept="{{ item.dept }}"
+                    data-year="{{ year }}"
+                    data-month="{{ month }}"
+                    data-locked="{{ '1' if locked else '0' }}"
+                    class="dept-lock-btn inline-flex items-center justify-center
                         px-6 py-2 rounded-xl font-extrabold text-base transition border
                         {% if locked %}
-                          bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700
+                            bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700
                         {% elif all_ok %}
-                          bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100
+                            bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100
                         {% elif partial %}
-                          bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100
+                            bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100
                         {% else %}
-                          bg-white border-sky-200 text-sky-800 hover:bg-sky-50
+                            bg-white border-sky-200 text-sky-800 hover:bg-sky-50
                         {% endif %}
-                        {% if (is_super and not locked) %}
-                          opacity-60 cursor-not-allowed
+                        {% if (is_mgr and locked) or (not is_super and not is_mgr) %}
+                            opacity-60 cursor-not-allowed
                         {% endif %}"
-                  {% if (is_super and not locked) or (is_mgr and locked) or (not is_super and not is_mgr) %}
+                    {% if (is_mgr and locked) or (not is_super and not is_mgr) %}
                     disabled
-                  {% endif %}>
+                    {% endif %}>
             <span>{{ item.dept }}</span>
             <span class="dept-count ml-2 text-xs font-bold opacity-80">({{ confirmed }}/{{ total }})</span>
             <span class="ml-2 inline-flex items-center">
-              {% if locked %}
+                {% if locked %}
                 <i data-lucide="lock" class="w-4 h-4 text-white/90"></i>
-              {% else %}
+                {% else %}
                 <i data-lucide="unlock" class="w-4 h-4 text-slate-500"></i>
-              {% endif %}
+                {% endif %}
             </span>
           </button>
           <!-- ✅ 오른쪽: 휴가계 다운로드 (아이콘만 + hover tooltip) -->
@@ -359,13 +359,23 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         // ✅ 총관리자: 잠금된 부서만 클릭 가능 → 확정 해제
         if (isSuper) {
-          if (!locked) return;
-          if (!confirm(`${dept} ${y}년 ${m}월 확정을 해제할까요?`)) return;
+            // 잠금된 상태면 해제
+            if (locked) {
+                if (!confirm(`${dept} ${y}년 ${m}월 확정을 해제할까요?`)) return;
 
-          const res = await axios.post(deptUnlockUrl, { dept, year: y, month: m });
-          alert(res.data.message || "확정 해제 완료");
-          window.location.reload();
-          return;
+                const res = await axios.post(deptUnlockUrl, { dept, year: y, month: m });
+                alert(res.data.message || "확정 해제 완료");
+                window.location.reload();
+                return;
+            }
+
+            // 잠금 안 된 상태면 다시 잠금
+            if (!confirm(`${dept} ${y}년 ${m}월을 다시 확정(잠금)할까요?`)) return;
+
+            const res = await axios.post(deptLockUrl, { dept, year: y, month: m });
+            alert(res.data.message || "확정 완료");
+            window.location.reload();
+            return;
         }
 
         // ✅ 중간관리자: 잠금 전 부서만 클릭 가능 → 확정(잠금)
