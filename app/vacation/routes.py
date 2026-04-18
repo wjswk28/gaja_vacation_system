@@ -1,656 +1,633 @@
-from flask import (request, Blueprint, render_template, redirect, url_for, flash, jsonify, session)
+# app/vacation_form/routes.py
+import os
+from flask import render_template, abort, request, jsonify, send_file, current_app
 from flask_login import login_required, current_user
-from datetime import datetime, date, timedelta
-from app.vacation import vacation_bp
-from app.models import User, Vacation, MonthLock
 from app import db
-from app.models import now_kst
-from sqlalchemy import or_, func
+from app.models import (
+    User, UserMonthConfirm, DeptMonthFinal, DeptMonthRoster,
+    MonthLock, MonthSignToggle, ApprovalRoleUser
+)
+from . import vacation_form_bp
+from datetime import date, datetime
+import calendar
+from pathlib import Path
+from app.vacation_form.utils import build_vacation_forms_xlsx
+
+# ✅ 휴가계 페이지에서 사용할 부서 목록
+# - 이미 프로젝트 어딘가에 공용 DEPARTMENTS가 있으면 그걸 import해서 쓰는 게 베스트
+DEPARTMENTS = [
+    "도수", "물리치료", "병동", "상담실", "수술실", "심사과",
+    "원무과", "외래", "총무과", "홍보", "진단검사", "영양",
+    "영상의학과", "임원진", "약제부"  # ✅ 새 부서
+]
+ADMIN_HEAD_DEPTS = {"도수", "물리치료", "심사과", "원무과", "총무과", "홍보", "진단검사", "영양", "약제부", "영상의학과"}
+NURSE_HEAD_DEPTS = {"상담실", "수술실", "외래"}
 
 
-# =======================================================
-# 공용: 휴가 차감 맵
-# =======================================================
-DEDUCTION_MAP = {
-    "연차": 1.0,
-    "반차(전)": 0.5,
-    "반차(후)": 0.5,
-    "반반차": 0.25,
-    "병가": 0,
-    "예비군": 0,
-    "탄력근무": 0,
-    "근무자": 0,
-    "토연차": 0.75,
-    "일정": 0,
-}
 
-# =======================================================
-# ✅ 공용: 월 확정(잠금) 체크
-# - 잠금된 달이면 "총관리자만" 수정/삭제 가능
-# =======================================================
-def _is_month_locked(dept: str, y: int, m: int) -> bool:
-    lk = MonthLock.query.filter_by(department=dept, year=y, month=m).first()
-    return bool(lk and lk.locked)
+def _can_confirm_target_month(year: int, month: int) -> bool:
 
-def _block_if_locked(dept: str, dt: date):
-    # ✅ 잠금된 달은 총관리자만 변경 가능
-    if _is_month_locked(dept, dt.year, dt.month) and (not current_user.is_superadmin):
+    today = date.today()
+    last_day = calendar.monthrange(year, month)[1]
+    start_day = 29 if last_day >= 29 else last_day
+    start = date(year, month, start_day)
+
+    next_year, next_month = year, month + 1
+    if next_month == 13:
+        next_month = 1
+        next_year += 1
+
+    end = date(next_year, next_month, 4)
+    return start <= today <= end
+
+
+
+def _display_name(u: User) -> str:
+    """
+    ✅ 버튼에 표시할 이름 규칙
+    - 너 models.py를 보면 first_name / name / username이 섞여 있을 수 있어서
+      안전하게 우선순위로 표시
+    """
+    return (u.first_name or u.name or u.username or "").strip()
+
+
+def _join_date_key(v: str):
+    """
+    join_date가 문자열이라 안전하게 파싱해서 정렬 키로 사용.
+    형식이 이상하거나 없으면 맨 뒤로 보냄.
+    """
+    s = (v or "").strip()
+    if not s:
+        return date.max
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return date.max
+
+def _dept_targets(dept: str, y: int, m: int):
+    """
+    ✅ 휴가계 대상자(전원 기준)
+    - 1순위: DeptMonthRoster(스냅샷) 있으면 그걸 사용
+    - 없으면: 현재 User에서 재직 + 대상자 True만 사용
+    """
+    snap = DeptMonthRoster.query.filter_by(department=dept, year=y, month=m).all()
+    if snap:
+        ids = [r.user_id for r in snap]
+        users = User.query.filter(User.id.in_(ids)).all()
+        # 스냅샷 순서 유지(입사일 정렬은 필요하면 여기서 다시)
+        id_to_u = {u.id: u for u in users}
+        return [id_to_u[i] for i in ids if i in id_to_u]
+
+    # 스냅샷 없으면 현재 상태 기준
+    return (
+        User.query
+        .filter_by(department=dept)
+        .filter(User.employment_status == "재직")
+        .filter(User.is_vacation_form_target == True)
+        .all()
+    )
+
+@vacation_form_bp.route("/", methods=["GET"])
+@login_required
+def index():
+    is_super = bool(getattr(current_user, "is_superadmin", False))
+    is_mgr = bool(getattr(current_user, "is_admin", False)) and (not is_super)
+
+    # ✅ 총관리자 or 중간관리자만 접근
+    if not (is_super or is_mgr):
+        abort(403)
+
+    # ✅ 보여줄 부서 목록
+    if is_super:
+        view_depts = DEPARTMENTS[:]   # 전체 부서
+    else:
+        my_dept = (current_user.department or "").strip()
+        if not my_dept:
+            abort(403)
+        view_depts = [my_dept]        # 내 부서만
+
+    # ✅ 조회할 년/월 (없으면 기본값: 1~4일이면 전월, 그 외엔 이번달)
+    y = request.args.get("year", type=int)
+    m = request.args.get("month", type=int)
+
+    today = date.today()
+    if not y or not m:
+        if today.day <= 4:
+            # 전월
+            if today.month == 1:
+                y, m = today.year - 1, 12
+            else:
+                y, m = today.year, today.month - 1
+        else:
+            y, m = today.year, today.month
+
+    confirmed_ids = set(
+        r.user_id for r in UserMonthConfirm.query.filter_by(year=y, month=m).all()
+    )
+
+    dept_map = []
+    dept_stats = {}  # ✅ 추가
+
+    for dept in view_depts:
+        # ✅ 휴가계 대상자 기준(재직 + is_vacation_form_target, 스냅샷 있으면 스냅샷 우선)
+        users = _dept_targets(dept, y, m)
+        users.sort(key=lambda u: (_join_date_key(getattr(u, "join_date", None)), _display_name(u)))
+
+        total = len(users)
+        confirmed = sum(1 for u in users if u.id in confirmed_ids)
+        locked = MonthLock.query.filter_by(department=dept, year=y, month=m, locked=True).first() is not None
+        dept_stats[dept] = {"total": total, "confirmed": confirmed, "locked": locked}
+
+        dept_map.append({"dept": dept, "members": users})
+
+    finalized_depts = set(
+        r.department for r in DeptMonthFinal.query.filter_by(year=y, month=m).all()
+        if r.finalized_at
+    )
+
+    # ✅ 병원장 후보: 의료진만
+    director_candidates = (
+        User.query.filter_by(department="의료진")
+        .order_by(User.name.asc())
+        .all()
+    )
+
+    # ✅ 부장 후보: 중간관리자만(총관리자 제외)
+    chief_candidates = (
+        User.query.filter(User.is_admin == True)
+        .filter(User.is_superadmin == False)
+        .order_by(User.department.asc(), User.name.asc())
+        .all()
+    )
+
+    # ✅ 현재 지정된 role→user_id 맵(선택값 유지용)
+    role_map = {r.role: r.user_id for r in ApprovalRoleUser.query.all()}
+    can_confirm = _can_confirm_target_month(y, m)
+
+    return render_template(
+        "vacation_form/index.html",
+        dept_map=dept_map,
+        year=y,
+        month=m,
+        confirmed_ids=confirmed_ids,
+        dept_stats=dept_stats,
+        finalized_depts=finalized_depts,
+        is_super=is_super,   # ✅ 추가
+        is_mgr=is_mgr,       # ✅ 추가
+        director_candidates=director_candidates,
+        chief_candidates=chief_candidates,
+        role_map=role_map,
+        can_confirm=can_confirm,
+    )
+
+@vacation_form_bp.get("/template")
+@login_required
+def download_vacation_form_template():
+    # ✅ index()와 동일한 권한
+    is_super = bool(getattr(current_user, "is_superadmin", False))
+    is_mgr = bool(getattr(current_user, "is_admin", False)) and (not is_super)
+    if not (is_super or is_mgr):
+        abort(403)
+
+    dept = (request.args.get("dept") or "").strip()
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+
+    # ✅ 중간관리자는 자기 부서만 다운로드 가능
+    if is_mgr:
+        my_dept = (current_user.department or "").strip()
+        if dept != my_dept:
+            abort(403)
+
+    # ✅ 템플릿 파일 경로: 프로젝트폴더/forms/vacation_form.xlsx
+    # current_app.root_path = .../프로젝트폴더/app
+    template_path = Path(current_app.root_path).parent / "forms" / "vacation_form.xlsx"
+    if not template_path.exists():
+        abort(404, description=f"휴가계 템플릿을 찾을 수 없습니다: {template_path}")
+
+    # ✅ 다운로드 파일명(예쁘게)
+    safe_dept = (dept or "부서").replace("/", "_").replace("\\", "_").replace("..", "")
+    suffix = ""
+    if year and month:
+        suffix = f"_{year}_{month:02d}"
+    download_name = f"휴가계_{safe_dept}{suffix}.xlsx"
+
+    return send_file(
+        template_path,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        conditional=True,
+        max_age=0,
+    )
+
+@vacation_form_bp.route("/dept_lock", methods=["POST"])
+@login_required
+def dept_lock():
+    is_super = bool(getattr(current_user, "is_superadmin", False))
+    is_mgr = bool(getattr(current_user, "is_admin", False)) and (not is_super)
+
+    # ✅ 총관리자/중간관리자만
+    if not (is_super or is_mgr):
+        return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
+
+    data = request.get_json(silent=True) or {}
+    dept = (data.get("dept") or "").strip()
+    year = int(data.get("year") or 0)
+    month = int(data.get("month") or 0)
+
+    if not dept or year <= 0 or month <= 0:
+        return jsonify({"status": "error", "message": "파라미터가 올바르지 않습니다."}), 400
+
+    # ✅ 중간관리자는 자기 부서만 잠금 가능
+    if is_mgr:
+        my_dept = (current_user.department or "").strip()
+        if dept != my_dept:
+            return jsonify({"status": "error", "message": "내 부서만 확정할 수 있습니다."}), 403
+
+    if (not is_super) and (not _can_confirm_target_month(year, month)):
+        return jsonify({"status": "error", "message": "확정은 해당 월의 29일 ~ 다음 달 4일에만 가능합니다."}), 400
+
+    # ✅ 전원 개인확정 완료 후에만 잠금 허용(원하면 조건 제거 가능)
+    users = _dept_targets(dept, year, month)
+    confirmed_ids = set(
+        r.user_id for r in UserMonthConfirm.query.filter_by(year=year, month=month).all()
+    )
+    total = len(users)
+    confirmed = sum(1 for u in users if u.id in confirmed_ids)
+    if total > 0 and confirmed != total:
+        return jsonify({"status": "error", "message": f"전원 확정({confirmed}/{total}) 후에만 가능합니다."}), 400
+    
+    # ✅ (추천) 확정 시점 대상자 스냅샷 저장
+    # - 이후 인사변동(퇴사/대상자 변경)이 있어도 "그 달의 전원 기준"이 흔들리지 않게 함
+    DeptMonthRoster.query.filter_by(department=dept, year=year, month=month).delete(synchronize_session=False)
+    for u in users:
+        db.session.add(DeptMonthRoster(department=dept, year=year, month=month, user_id=u.id))
+
+    # ✅ 서명 등록 여부 체크(기존 캘린더 확정과 동일)
+    sig = (getattr(current_user, "signature_image", None) or "").strip()
+    if not sig:
         return jsonify({
             "status": "error",
-            "message": "확정된 달입니다. 총관리자만 수정/삭제할 수 있습니다."
-        }), 403
-    return None
+            "message": "서명이 등록되어 있어야 확정할 수 있습니다. (내정보에서 서명 등록 후 확정하세요)"
+        }), 400
 
-# =======================================================
-# 휴가 추가 (연차, 반차, 토연차, 탄력근무 포함)
-# =======================================================
-@vacation_bp.route("/add", methods=["POST"])
-@login_required
-def add_event():
-    try:
-        data = request.get_json(silent=True) or {}
-        if not data:
-            return jsonify({"status": "error", "message": "데이터가 없습니다."}), 400
+    # ✅ month_lock 적용(잠금) + 누가 잠갔는지 기록(서명 삽입에 필요)
+    lk = MonthLock.query.filter_by(department=dept, year=year, month=month).first()
+    if not lk:
+        lk = MonthLock(department=dept, year=year, month=month)
 
-        start = (data.get("start") or "").strip()
-        end = (data.get("end") or start).strip()
-        vac_type = (data.get("type") or "연차").strip()
-        
-        # ✅ 탄력근무는 전용 API(/vacation/add_flex_event)로만 등록 허용
-        if vac_type == "탄력근무":
-            return jsonify({
-                "status": "error",
-                "message": "탄력근무는 전용 등록 기능으로만 추가할 수 있습니다."
-            }), 200
+    lk.locked = True
+    lk.locked_at = datetime.now()
+    lk.locked_by = current_user.id
 
-
-        worker_names = data.get("worker_names", []) or []
-        single_worker = data.get("worker_name")
-        target_name = (data.get("target_name") or "").strip()  # 관리자가 선택한 직원명
-
-        # ✅ 의료진/일정 추가 입력
-        selected_dept = (data.get("department") or "").strip()
-        memo = (data.get("memo") or "").strip()
-        start_time = (data.get("start_time") or "").strip()  # "08:00"
-        end_time = (data.get("end_time") or "").strip()      # "17:00"
-
-        user_name = current_user.first_name or current_user.name or current_user.username
-        user_dept = (current_user.department or "").strip()
-
-        if not selected_dept:
-            selected_dept = user_dept
-            
-        # ✅ 일반 사용자는 부서 파라미터 조작 불가 (본인 부서만 등록)
-        if (not current_user.is_admin) and (not current_user.is_superadmin):
-            if selected_dept != user_dept:
-                return jsonify({"status": "error", "message": "다른 부서에는 등록할 수 없습니다."}), 403
-
-
-        if not selected_dept:
-            return jsonify({"status": "error", "message": "부서 정보가 없습니다. 캘린더를 새로고침 후 다시 시도해주세요."}), 200
-        
-        # 날짜 변환
-        try:
-            start_date = datetime.strptime(start, "%Y-%m-%d").date()
-            end_date = datetime.strptime(end, "%Y-%m-%d").date()
-        except Exception:
-            return jsonify({"status": "error", "message": "날짜 형식 오류"}), 200
-
-        if end_date < start_date:
-            return jsonify({"status": "error", "message": "종료일이 시작일보다 빠릅니다."}), 200
-
-        # =======================================================
-        # ✅ '일정'은 의료진 부서에서만 허용
-        # =======================================================
-        if vac_type == "일정" and selected_dept != "의료진":
-            return jsonify({"status": "error", "message": "‘일정’은 의료진 캘린더에서만 등록할 수 있습니다."}), 200
-
-        # 일정은 하루만 허용 + 시간 필수
-        if vac_type == "일정":
-            if start_date != end_date:
-                return jsonify({"status": "error", "message": "‘일정’은 하루만 선택해서 등록해주세요."}), 200
-            if not start_time or not end_time:
-                return jsonify({"status": "error", "message": "‘일정’은 시작/종료 시간이 필요합니다."}), 200
-            if start_time >= end_time:
-                return jsonify({"status": "error", "message": "종료 시간은 시작 시간보다 늦어야 합니다."}), 200
-
-        # =======================================================
-        # ✅ 월 잠금 체크: 선택 부서 기준(의료진 포함)
-        # =======================================================
-        blocked = _block_if_locked(selected_dept, start_date)
-        if blocked:
-            return blocked
-        blocked = _block_if_locked(selected_dept, end_date)
-        if blocked:
-            return blocked
-
-        weekday = start_date.weekday()  # 월=0 ~ 일=6
-
-        # =======================================================
-        #  🟦 여러 부서 전용 토요일 토연차 규칙 (선택부서 기준)
-        # =======================================================
-        TOYEONCHA_DEPTS = ["원무과", "물리치료실", "영상의학과", "심사과", "외래", "진단검사", "상담실"]
-
-        if selected_dept in TOYEONCHA_DEPTS:
-            # (1) 토연차는 토요일만 가능
-            if vac_type == "토연차" and weekday != 5:
-                return jsonify({
-                    "status": "error",
-                    "message": f"{selected_dept}의 '토연차'는 토요일에만 사용할 수 있습니다."
-                }), 200
-
-            # (2) 토요일은 토연차만 가능 (근무자는 예외)
-            if weekday == 5 and vac_type not in ["토연차", "근무자"]:
-                return jsonify({
-                    "status": "error",
-                    "message": f"{selected_dept}는 토요일에 '토연차'만 사용할 수 있습니다."
-                }), 200
-            
-        # =======================================================
-        #  🟦 근무자 지정 (근무자 → 항상 바로 승인)
-        # =======================================================
-        if vac_type == "근무자":
-            names_to_add = worker_names if worker_names else [single_worker]
-            added_count = 0
-
-            for raw_name in names_to_add:
-                name = (raw_name or "").strip()
-                if not name:
-                    continue
-
-                # ✅ 근무하는 사람을 DB에서 정확히 찾기 (선택부서에서만)
-                worker_user = User.query.filter(
-                    func.trim(User.department) == selected_dept,
-                    or_(
-                        func.trim(User.name) == name,
-                        func.trim(User.first_name) == name
-                    )
-                ).first()
-
-                if not worker_user:
-                    # 필요하면 여기서 return error로 바꿔도 됨
-                    continue
-
-                worker_display = (worker_user.name or worker_user.first_name or worker_user.username or "").strip()
-
-                # ✅ 중복 방지: "사람(id) + 날짜 + 근무자" 기준으로 체크
-                exists = Vacation.query.filter_by(
-                    department=selected_dept,
-                    type="근무자",
-                    start_date=start_date,
-                    target_user_id=worker_user.id
-                ).first()
-                if exists:
-                    continue
-
-                # ✅ 핵심: 근무자 본인 id로 저장
-                new_worker = Vacation(
-                    user_id=worker_user.id,          # ✅ 근무자 본인
-                    target_user_id=worker_user.id,   # ✅ 근무자 본인
-                    name=worker_display,             # ✅ 표준 이름
-                    department=selected_dept,
-                    start_date=start_date,
-                    end_date=start_date,             # ✅ 근무자는 하루 단위 권장
-                    type="근무자",
-                    approved=True
-                )
-                db.session.add(new_worker)
-                added_count += 1
-
-            db.session.commit()
-            return jsonify({
-                "status": "success",
-                "message": f"{added_count}명 근무자 등록 완료"
-            }), 200
-        
-        # =======================================================
-        # ✅ 대상자 결정 (의료진/일반 부서 공통)
-        # =======================================================
-        # 기본: 본인
-        target_user = current_user
-
-        if selected_dept == "의료진":
-            # 타부서 일반직원은 의료진 등록 불가
-            if (user_dept != "의료진") and (not (current_user.is_admin or current_user.is_superadmin)):
-                return jsonify({"status": "error", "message": "의료진 일정 등록 권한이 없습니다."}), 200
-
-            # 타부서 관리자/총관리자는 의료진 선택 필수
-            if target_name:
-                target_user = User.query.filter(
-                    func.trim(User.department) == "의료진",
-                    or_(
-                        func.trim(User.first_name) == target_name,
-                        func.trim(User.name) == target_name
-                    )
-                ).first()
-                if not target_user:
-                    return jsonify({"status": "error", "message": "선택한 의료진을 찾을 수 없습니다."}), 200
-            else:
-                # ✅ 의료진 소속이면 본인 등록 허용
-                # ✅ 단, "근무자" 타입은 worker_names로 따로 처리하므로 여기서 막지 않음
-                if user_dept != "의료진" and vac_type != "근무자":
-                    return jsonify({"status": "error", "message": "의료진을 선택해주세요."}), 200
-                target_user = current_user
-        else:
-            # 의료진이 아닌 부서에서 관리자가 target_name 지정하는 경우: 선택부서에서 찾기
-            if target_name and (current_user.is_admin or current_user.is_superadmin):
-                tu = User.query.filter(
-                    func.trim(User.department) == selected_dept,
-                    or_(
-                        func.trim(User.first_name) == target_name,
-                        func.trim(User.name) == target_name
-                    )
-                ).first()
-                if not tu:
-                    return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 200
-                target_user = tu
-
-        # ✅ 표시용 이름 통일 (근무표/리스트에서 흔들리지 않게)
-        display_name = (target_user.name or target_user.first_name or target_user.username or "").strip()
-
-
-        
-
-
-        # =======================================================
-        #  🟦 휴가 중복 검사 (대상자 기준 + 부서 기준)
-        # =======================================================
-        overlap = Vacation.query.filter(
-            Vacation.department == selected_dept,
-            Vacation.type != "탄력근무",
-            Vacation.start_date <= end_date,
-            Vacation.end_date >= start_date,
-            Vacation.target_user_id == target_user.id
-        ).first()
-
-        # 기존 데이터 중 target_user_id가 NULL로 저장된 예전 기록과도 충돌 체크(이름 기준 보완)
-        if not overlap:
-            overlap = Vacation.query.filter(
-                Vacation.department == selected_dept,
-                Vacation.type != "탄력근무",
-                Vacation.start_date <= end_date,
-                Vacation.end_date >= start_date,
-                Vacation.name == display_name
-            ).first()
-
-        if overlap:
-            return jsonify({
-                "status": "error",
-                "message": f"{target_user.name or target_user.username}님은 이미 같은 날짜에 '{overlap.type}' 일정이 있습니다."
-            }), 200
-
-        # =======================================================
-        #  🟦 승인 여부 자동 결정 (의료진 규칙 반영)
-        # =======================================================
-        if selected_dept == "의료진":
-            if vac_type == "일정":
-                approved_status = True  # ✅ 일정은 즉시 등록
-            elif current_user.is_superadmin:
-                approved_status = True
-            elif (user_dept == "의료진") and current_user.is_admin:
-                approved_status = True
-            else:
-                approved_status = False  # ✅ 의료진 중간관리자 승인 대기
-        else:
-            approved_status = current_user.is_admin or current_user.is_superadmin
-
-        # =======================================================
-        #  🟦 휴가 등록
-        # =======================================================
-        # ✅ 등록자(작성자) / 대상자(일정 주인) 분리
-        creator_id = current_user.id
-        owner_id = target_user.id
-
-        # ✅ 재발 방지 핵심: 일정의 "주인"을 user_id로도 저장
-        new_event = Vacation(
-            user_id=owner_id,          # ✅ 항상 주인
-            target_user_id=owner_id,   # ✅ 항상 주인
-            name=display_name,
-            department=selected_dept,
-            start_date=start_date,
-            end_date=end_date,
-            type=vac_type,
-            approved=approved_status
-        )
-
-
-        # ✅ 일정이면 메모/시간 저장 (Vacation 모델 컬럼 있어야 함)
-        if vac_type == "일정":
-            new_event.memo = memo or None
-            new_event.start_time = start_time
-            new_event.end_time = end_time
-        else:
-            new_event.memo = None
-            new_event.start_time = None
-            new_event.end_time = None
-
-        db.session.add(new_event)
-
-        # =======================================================
-        # 🟦 연차 차감: ✅ 기본은 '일반 연차(remaining_days)'만 차감
-        # =======================================================
-        deduction = DEDUCTION_MAP.get(vac_type, 0)
-
-        try:
-            if deduction > 0:
-                remain = float(target_user.remaining_days or 0)
-                target_user.remaining_days = max(-999, remain - deduction)
-
-                # ✅ 새로 등록되는 휴가는 기본적으로 '대체연차 아님'
-                if hasattr(new_event, "is_alt"):
-                    new_event.is_alt = False
-
-        except Exception as e:
-            print("⚠️ 연차 차감 오류:", e)
-
-        db.session.commit()
-
-        msg_name = display_name or (target_user.name or target_user.username)
-        msg = f"{msg_name}님의 휴가가 등록되었습니다."
-        if selected_dept == "의료진" and vac_type != "일정" and (not approved_status):
-            msg = f"{msg_name}님의 휴가 신청이 등록되었습니다. (승인 대기)"
-
-        return jsonify({
-            "status": "success",
-            "message": msg,
-            "approved": approved_status
-        }), 200
-
-    except Exception as e:
-        print("❌ /vacation/add 오류:", e)
-        db.session.rollback()
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-# =======================================================
-# 휴가 승인
-# =======================================================
-@vacation_bp.route("/approve/<int:event_id>", methods=["POST"])
-@login_required
-def approve_event(event_id):
-    if not (current_user.is_admin or current_user.is_superadmin):
-        return jsonify({"status": "error", "message": "승인 권한이 없습니다."}), 403
-
-
-    event = Vacation.query.get_or_404(event_id)
-    
-    # ✅ 중간관리자면 자기 부서만 승인 가능
-    if current_user.is_admin and (not current_user.is_superadmin):
-        if (event.department or "").strip() != (current_user.department or "").strip():
-            return jsonify({"status": "error", "message": "다른 부서 일정은 승인할 수 없습니다."}), 403
-
-    # ✅ 총관리자는 탄력근무 승인 금지 (원 설계 유지)
-    if current_user.is_superadmin and event.type == "탄력근무":
-        return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
-
-    
-    blocked = _block_if_locked(event.department, event.start_date)
-    if blocked:
-        return blocked
-    event.approved = True
+    db.session.add(lk)
     db.session.commit()
 
-    return jsonify({"status": "success", "message": "승인되었습니다."})
 
-def _refund_days_for_event(event: Vacation):
-    deduction = DEDUCTION_MAP.get(event.type or "", 0)
-    if deduction <= 0:
-        return
+    # -------------------------------------------------------
+    # ✅ 서명 삽입(기존 기능) 연결 자리
+    # - 지금 업로드된 파일들에는 서명 삽입 함수가 없어서
+    #   "어떤 함수를 호출해야 하는지"를 아직 정확히 못 찍어.
+    # - 서명 삽입 함수/코드가 있는 파일을 올려주면
+    #   여기 바로 아래에 정확히 붙여줄게.
+    # -------------------------------------------------------
 
-    # 대상자 찾기
-    target_user = event.target_user or User.query.get(event.target_user_id) or User.query.get(event.user_id)
-    if not target_user:
-        return
+    return jsonify({"status": "success", "message": "부서 확정(잠금) 완료"})
 
-    # ✅ 대체연차로 전환된 이벤트면 alt_leave 환급, 아니면 remaining_days 환급
-    if bool(getattr(event, "is_alt", False)):
-        target_user.alt_leave = float(target_user.alt_leave or 0) + deduction
+@vacation_form_bp.post("/user_confirm")
+@login_required
+def user_confirm():
+    is_super = bool(getattr(current_user, "is_superadmin", False))
+    is_mgr = bool(getattr(current_user, "is_admin", False)) and (not is_super)
+
+    # ✅ 중간관리자(요구사항). 필요하면 총관리자도 허용 가능: (is_super or is_mgr)
+    if not is_mgr:
+        return jsonify({"status": "error", "message": "중간관리자만 사용할 수 있습니다."}), 403
+
+    data = request.get_json(silent=True) or {}
+    user_id = int(data.get("user_id") or 0)
+    year = int(data.get("year") or 0)
+    month = int(data.get("month") or 0)
+
+    if user_id <= 0 or year <= 0 or month <= 0:
+        return jsonify({"status": "error", "message": "파라미터가 올바르지 않습니다."}), 400
+
+    # ✅ 확정 가능 기간 체크
+    if not _can_confirm_target_month(year, month):
+        return jsonify({"status": "error", "message": "확정 가능한 기간이 아닙니다."}), 400
+
+    target = db.session.get(User, user_id)
+    if not target:
+        return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 404
+
+    my_dept = (current_user.department or "").strip()
+    tgt_dept = (target.department or "").strip()
+
+    # ✅ 중간관리자는 자기 부서 직원만
+    if tgt_dept != my_dept:
+        return jsonify({"status": "error", "message": "내 부서 직원만 확정할 수 있습니다."}), 403
+
+    # ✅ 휴가계 대상자만 (스냅샷/재직/타겟 기준)
+    targets = _dept_targets(tgt_dept, year, month)
+    target_ids = {u.id for u in targets}
+    if target.id not in target_ids:
+        return jsonify({"status": "error", "message": "휴가계 대상자가 아닙니다."}), 400
+
+    # ✅ 부서 확정(잠금) 후에는 개인확정 변경 불가
+    locked = MonthLock.query.filter_by(department=tgt_dept, year=year, month=month, locked=True).first()
+    if locked:
+        return jsonify({"status": "error", "message": "이미 부서 확정(잠금)된 달입니다."}), 400
+
+    # ✅ 토글(있으면 삭제, 없으면 생성)
+    rec = UserMonthConfirm.query.filter_by(user_id=target.id, year=year, month=month).first()
+    if rec:
+        db.session.delete(rec)
+        confirmed_now = False
     else:
-        target_user.remaining_days = float(target_user.remaining_days or 0) + deduction
+        rec = UserMonthConfirm(user_id=target.id, year=year, month=month)
+        if hasattr(rec, "confirmed_at"):
+            rec.confirmed_at = datetime.now()
+        if hasattr(rec, "confirmed_by"):
+            rec.confirmed_by = current_user.id
+        db.session.add(rec)
+        confirmed_now = True
 
-# =======================================================
-# 휴가 삭제
-# =======================================================
-@vacation_bp.route("/delete/<int:event_id>", methods=["DELETE"])
-@login_required
-def delete_event(event_id):
-    event = Vacation.query.get_or_404(event_id)
-    blocked = _block_if_locked(event.department, event.start_date)
-    if blocked:
-        return blocked
-    
-    # ✅ 총관리자는 탄력근무를 삭제/처리 불가 (원 설계 유지)
-    if current_user.is_superadmin and event.type == "탄력근무":
-        return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
+    db.session.commit()
 
-    # 🔹 이 일정이 "나"의 일정인지 user_id 기준으로 확인
-    is_mine = (
-        event.user_id == current_user.id
-        or (getattr(event, "target_user_id", None) == current_user.id)
+    # ✅ 최신 카운트 계산해서 UI 즉시 업데이트에 사용
+    confirmed_ids = set(
+        r.user_id for r in UserMonthConfirm.query.filter_by(year=year, month=month).all()
     )
+    total = len(targets)
+    confirmed_cnt = sum(1 for u in targets if u.id in confirmed_ids)
 
-    # 1) 내 일정이면 승인 여부와 상관없이 삭제 허용
-    if is_mine:
-        was_approved = bool(event.approved)
-
-        _refund_days_for_event(event)   # ✅ 추가
-        db.session.delete(event)
-        db.session.commit()
-
-        return jsonify({
-            "status": "success",
-            "message": "승인된 휴가가 삭제되었습니다." if was_approved else "신청이 취소되었습니다."
-        })
-
-    # 2) 총관리자 / 중간관리자 삭제 권한 분리
-    if current_user.is_superadmin:
-        # (위에서 탄력근무는 이미 차단했지만, 안전하게 한 번 더)
-        if event.type == "탄력근무":
-            return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
-        _refund_days_for_event(event)   # ✅ 추가
-        db.session.delete(event)
-        db.session.commit()
-        return jsonify({"status": "success", "message": "일정이 삭제되었습니다."}), 200
-
-    if current_user.is_admin:
-        # ✅ 중간관리자는 자기 부서 일정만 삭제 가능
-        if (event.department or "").strip() != (current_user.department or "").strip():
-            return jsonify({"status": "error", "message": "다른 부서 일정은 삭제할 수 없습니다."}), 403
-        _refund_days_for_event(event)   # ✅ 추가
-        db.session.delete(event)
-        db.session.commit()
-        return jsonify({"status": "success", "message": "일정이 삭제되었습니다."}), 200
-
-
-    # 3) 그 외에는 삭제 불가
-    return jsonify({
-        "status": "error",
-        "message": "삭제 권한이 없습니다."
-    }), 403
-
-@vacation_bp.route("/convert_to_alt/<int:event_id>", methods=["POST"])
-@login_required
-def convert_to_alt(event_id):
-    # ✅ 총관리자만
-    if not current_user.is_superadmin:
-        return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
-
-    event = Vacation.query.get_or_404(event_id)
-
-    # ✅ 월 잠금 체크 (총관리자만 수정 가능 정책이면 _block_if_locked가 알아서 처리)
-    blocked = _block_if_locked(event.department, event.start_date)
-    if blocked:
-        return blocked
-    
-    # ✅ 연차류만 대체연차로 전환 허용 (원하는 타입만)
-    CONVERTIBLE_TYPES = {"연차", "반차(전)", "반차(후)", "반반차", "토연차"}
-    if (event.type or "").strip() not in CONVERTIBLE_TYPES:
-        return jsonify({"status": "error", "message": "대체연차로 변경할 수 없는 일정입니다."}), 400
-
-    deduction = DEDUCTION_MAP.get(event.type or "", 0)
-    if deduction <= 0:
-        return jsonify({"status": "error", "message": "대체연차로 변경할 수 없는 일정입니다."}), 400
-
-    if getattr(event, "is_alt", False):
-        return jsonify({"status": "success", "message": "이미 대체연차로 처리된 휴가입니다."}), 200
-
-    target_user = event.target_user or User.query.get(event.target_user_id) or User.query.get(event.user_id)
-    if not target_user:
-        return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 400
-
-    alt = float(target_user.alt_leave or 0)
-    if alt < deduction:
-        return jsonify({"status": "error", "message": "대체연차가 부족합니다."}), 400
-
-    remain = float(target_user.remaining_days or 0)
-    target_user.remaining_days = max(-999, remain + deduction)
-    target_user.alt_leave = alt - deduction
-
-    event.is_alt = True
-
-    db.session.commit()
-    return jsonify({"status": "success", "message": "대체연차로 변경되었습니다."}), 200
-
-
-# =====================
-# 연차 승인 대기 목록 (관리자 전용)
-# =====================
-@vacation_bp.route("/pending_vacations")
-@login_required
-def pending_vacations():
-    # 관리자 / 총관리자만 접근
-    if not (current_user.is_admin or current_user.is_superadmin):
-        flash("권한이 없습니다.", "error")
-        return redirect(url_for("calendar.calendar_page"))
-
-    pending = Vacation.query.filter_by(
-        department=current_user.department,
-        approved=False
-    ).all()
-
-    # 🔥 날짜 기준 정렬 (오름차순)
-    pending = sorted(pending, key=lambda v: v.start_date)
-    users = User.query.filter_by(department=current_user.department).all()
-    return render_template("pending_vacations.html", vacations=pending, users=users)
-
-
-# =====================
-# 휴가 승인 (연차 승인 대기 페이지용)
-# =====================
-@vacation_bp.route("/approve_vacation/<int:vac_id>", methods=["POST"])
-@login_required
-def approve_vacation(vac_id):
-    if not (current_user.is_admin or current_user.is_superadmin):
-        return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
-
-    vac = Vacation.query.get(vac_id)
-    
-    # ✅ 중간관리자면 자기 부서만 승인 가능
-    if current_user.is_admin and (not current_user.is_superadmin):
-        if (vac.department or "").strip() != (current_user.department or "").strip():
-            return jsonify({"status": "error", "message": "다른 부서 일정은 승인할 수 없습니다."}), 403
-
-    # ✅ 총관리자는 탄력근무 승인 금지 (원 설계 유지)
-    if current_user.is_superadmin and vac.type == "탄력근무":
-        return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
-
-    if not vac:
-        return jsonify({"status": "error", "message": "휴가를 찾을 수 없습니다."}), 404
-    blocked = _block_if_locked(vac.department, vac.start_date)
-    if blocked:
-        return blocked
-
-    vac.approved = True
-    db.session.commit()
     return jsonify({
         "status": "success",
-        "message": f"{vac.name}님의 휴가가 승인되었습니다."
+        "dept": tgt_dept,
+        "user_id": target.id,
+        "confirmed": confirmed_now,
+        "total": total,
+        "confirmed_cnt": confirmed_cnt,
+        "locked": False,
     })
 
-#------------------------------------------------------
-# 탄력근무 추가 (중간관리자 전용)
-#------------------------------------------------------
-@vacation_bp.route("/add_flex_event", methods=["POST"])
+
+@vacation_form_bp.route("/dept_unlock", methods=["POST"])
 @login_required
-def add_flex_event():
+def dept_unlock():
+    # ✅ 총관리자만
+    if not bool(getattr(current_user, "is_superadmin", False)):
+        return jsonify({"status": "error", "message": "총관리자만 확정 해제할 수 있습니다."}), 403
 
-    # ✅ 총관리자 / 중간관리자만 허용
-    if not (current_user.is_admin or current_user.is_superadmin):
-        return jsonify({"status": "error", "message": "탄력근무 등록 권한이 없습니다."}), 403
-    
     data = request.get_json(silent=True) or {}
+    dept = (data.get("dept") or "").strip()
+    year = int(data.get("year") or 0)
+    month = int(data.get("month") or 0)
 
-    target_name = (data.get("target_name") or "").strip()
-    date_str = (data.get("date") or "").strip()
-    hours = data.get("hours", None)
+    if not dept or year <= 0 or month <= 0:
+        return jsonify({"status": "error", "message": "파라미터가 올바르지 않습니다."}), 400
 
-    if not target_name or not date_str or hours is None:
-        return jsonify({"status": "error", "message": "필수 값 누락"}), 400
+    lk = MonthLock.query.filter_by(department=dept, year=year, month=month).first()
+    if not lk or not lk.locked:
+        return jsonify({"status": "error", "message": "이미 확정 해제 상태입니다."}), 400
 
-    # 🔥 문자열을 date 객체로 변환
-    try:
-        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        return jsonify({"status": "error", "message": "잘못된 날짜 형식"}), 400
+    # ✅ 확정 해제(잠금 해제)
+    lk.locked = False
+    lk.locked_at = None
+    lk.locked_by = None
 
-    try:
-        hours = float(hours)
-    except:
-        return jsonify({"status": "error", "message": "시간값 오류"}), 400
-
-    # ✅ 총관리자면 payload의 department 기준 / 중간관리자는 본인 부서 고정
-    selected_dept = (data.get("department") or "").strip()
-    if not current_user.is_superadmin:
-        selected_dept = (current_user.department or "").strip()
-
-    if not selected_dept:
-        return jsonify({"status": "error", "message": "부서 정보가 없습니다."}), 400
-
-    # ✅ 타겟 직원 조회: 선택된 부서에서만 찾기 (동명이인/타부서 방지)
-    target_user = User.query.filter(
-        func.trim(User.department) == func.trim(selected_dept),
-        or_(
-            func.trim(User.first_name) == target_name,
-            func.trim(User.name) == target_name,
-        )
-    ).first()
-
-    if not target_user:
-        return jsonify({"status": "error", "message": "직원 정보 없음(같은 부서인지 확인)"}), 400
-
-    # ✅ 확정(잠금)된 달이면 등록 불가 (총관리자만 가능하도록 되어있다면 그대로 적용)
-    blocked = _block_if_locked(selected_dept, date_obj)
-    if blocked:
-        return blocked
-
-    # ✅ (선택) 같은날 중복 방지
-    exists = Vacation.query.filter_by(
-        target_user_id=target_user.id,
-        department=target_user.department,
-        type="탄력근무",
-        start_date=date_obj,
-        end_date=date_obj
-    ).first()
-    if exists:
-        return jsonify({"status": "error", "message": "이미 해당 날짜에 탄력근무가 있습니다."}), 200
-    
-    display_name = (target_user.name or target_user.first_name or target_user.username or "").strip()
-    
-    flex_event = Vacation(
-        user_id=target_user.id,
-        target_user_id=target_user.id,
-        name=display_name,
-        department=target_user.department,
-        type="탄력근무",
-        start_date=date_obj,
-        end_date=date_obj,
-        hours=hours,
-        is_flex=True,
-        approved=True,  # 탄력근무 자동 승인
-        created_at=now_kst()
-    )
-
-    db.session.add(flex_event)
+    db.session.add(lk)
     db.session.commit()
 
-    return jsonify({"status": "success"}), 200
+    return jsonify({"status": "success", "message": "확정 해제 완료"})
+
+@vacation_form_bp.get("/sign-status")
+@login_required
+def sign_status():
+    # ✅ 총관리자만
+    if not bool(getattr(current_user, "is_superadmin", False)):
+        return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
+
+    y = request.args.get("year", type=int)
+    m = request.args.get("month", type=int)
+    if not y or not m:
+        return jsonify({"status": "error", "message": "year/month가 필요합니다."}), 400
+
+    rec = MonthSignToggle.query.filter_by(year=y, month=m).first()
+    return jsonify({
+        "status": "ok",
+        "year": y,
+        "month": m,
+        "director_on": bool(rec and rec.director_on),
+        "admin_head_on": bool(rec and rec.admin_head_on),
+        "nurse_head_on": bool(rec and rec.nurse_head_on),
+    })
+
+
+@vacation_form_bp.post("/sign-toggle")
+@login_required
+def sign_toggle():
+    # ✅ 총관리자만
+    if not bool(getattr(current_user, "is_superadmin", False)):
+        return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
+
+    data = request.get_json(silent=True) or {}
+    y = int(data.get("year") or 0)
+    m = int(data.get("month") or 0)
+    role = (data.get("role") or "").strip()  # director | admin_head | nurse_head
+
+    if y <= 0 or m <= 0:
+        return jsonify({"status": "error", "message": "year/month가 올바르지 않습니다."}), 400
+    if role not in ("director", "admin_head", "nurse_head"):
+        return jsonify({"status": "error", "message": "role이 올바르지 않습니다."}), 400
+
+    rec = MonthSignToggle.query.filter_by(year=y, month=m).first()
+    if not rec:
+        rec = MonthSignToggle(year=y, month=m)
+        db.session.add(rec)
+
+    if role == "director":
+        rec.director_on = not rec.director_on
+        value = rec.director_on
+    elif role == "admin_head":
+        rec.admin_head_on = not rec.admin_head_on
+        value = rec.admin_head_on
+    else:
+        rec.nurse_head_on = not rec.nurse_head_on
+        value = rec.nurse_head_on
+
+    db.session.commit()
+    return jsonify({"status": "ok", "role": role, "value": bool(value)})
+
+@vacation_form_bp.get("/approval-role-map")
+@login_required
+def approval_role_map():
+    if not current_user.is_superadmin:
+        return jsonify({"status":"error","message":"권한이 없습니다."}), 403
+
+    rows = ApprovalRoleUser.query.all()
+    out = {r.role: r.user_id for r in rows}
+    return jsonify({"status":"ok","map": out})
+
+
+@vacation_form_bp.post("/approval-role-map")
+@login_required
+def set_approval_role_map():
+    if not current_user.is_superadmin:
+        return jsonify({"status":"error","message":"권한이 없습니다."}), 403
+
+    data = request.get_json(silent=True) or {}
+    role = (data.get("role") or "").strip()
+    user_id = int(data.get("user_id") or 0)
+
+    if role not in ("director", "admin_head", "nurse_head"):
+        return jsonify({"status":"error","message":"role이 올바르지 않습니다."}), 400
+    u = db.session.get(User, user_id)
+    if not u:
+        return jsonify({"status":"error","message":"사용자를 찾을 수 없습니다."}), 400
+
+    rec = ApprovalRoleUser.query.filter_by(role=role).first()
+    if not rec:
+        rec = ApprovalRoleUser(role=role, user_id=user_id)
+        db.session.add(rec)
+    else:
+        rec.user_id = user_id
+
+    db.session.commit()
+    return jsonify({"status":"ok"})
+
+@vacation_form_bp.get("/download")
+@login_required
+def download_vacation_forms():
+    is_super = bool(getattr(current_user, "is_superadmin", False))
+    is_mgr = bool(getattr(current_user, "is_admin", False)) and (not is_super)
+
+    if not (is_super or is_mgr):
+        abort(403)
+
+    dept = (request.args.get("dept") or "").strip()
+    year = request.args.get("year", type=int)
+    month = request.args.get("month", type=int)
+
+    if not dept or not year or not month:
+        return jsonify({"status": "error", "message": "dept/year/month가 필요합니다."}), 400
+
+    # ✅ 중간관리자는 자기 부서만
+    if is_mgr:
+        my_dept = (current_user.department or "").strip()
+        if dept != my_dept:
+            abort(403)
+
+    # ✅ 조건 1) 부서 확정(잠금) 되어 있어야 함
+    locked = MonthLock.query.filter_by(department=dept, year=year, month=month, locked=True).first()
+    if not locked:
+        return jsonify({"status": "error", "message": "부서 확정(잠금) 후 다운로드할 수 있습니다."}), 400
+
+    # ✅ 조건 2) 전원 개인 확정 완료
+    targets = _dept_targets(dept, year, month)
+    confirmed_ids = set(
+        r.user_id for r in UserMonthConfirm.query.filter_by(year=year, month=month).all()
+    )
+    total = len(targets)
+    confirmed = sum(1 for u in targets if u.id in confirmed_ids)
+    if total > 0 and confirmed != total:
+        return jsonify({"status": "error", "message": f"전원 확정({confirmed}/{total}) 후에만 가능합니다."}), 400
+
+    # ✅ 템플릿 경로: 프로젝트폴더/forms/vacation_form.xlsx
+    template_path = Path(current_app.root_path).parent / "forms" / "vacation_form.xlsx"
+    if not template_path.exists():
+        abort(404, description=f"휴가계 템플릿을 찾을 수 없습니다: {template_path}")
+
+    # ✅ 대상자 정렬(현재 너 index()와 동일하게 입사일 + 이름 정렬 추천)
+    targets.sort(key=lambda u: (_join_date_key(getattr(u, "join_date", None)), _display_name(u)))
+
+    sig_folder = current_app.config["SIGNATURES_FOLDER"]  # 근무표와 동일
+
+    def _sig_abs_path(user: User, sig_folder: str) -> str | None:
+        sig = (getattr(user, "signature_image", "") or "").strip()
+        if not sig:
+            return None
+        # 절대경로 저장된 경우
+        if os.path.isabs(sig) and os.path.exists(sig):
+            return sig
+        # 파일명만 signatures 폴더에서 찾기
+        p = Path(sig_folder) / Path(sig).name
+        return str(p) if p.exists() else None
+
+
+    header_signatures = {}
+
+    # ✅ 1) 부서장(I3) = 이 부서/월을 잠근(확정한) 중간관리자 서명
+    lk = MonthLock.query.filter_by(department=dept, year=year, month=month, locked=True).first()
+    if lk and lk.locked_by:
+        dept_head_user = db.session.get(User, lk.locked_by)
+        if dept_head_user:
+            p = _sig_abs_path(dept_head_user, sig_folder)
+            if p:
+                header_signatures["I3"] = p
+
+    # ✅ 2) 총관리자 토글 서명(L3/O3)
+    # - MonthSignToggle: 해당 월에 어떤 결재라인을 찍을지 on/off
+    # - ApprovalRoleUser: role별 실제 서명자(사용자) 지정
+    tog = MonthSignToggle.query.filter_by(year=year, month=month).first()
+    role_map = {r.role: r.user_id for r in ApprovalRoleUser.query.all()}
+
+    # ✅ (부장 toggle) L3: 부서에 따라 "행정부장/간호부장" 자동 선택
+    # - ADMIN_HEAD_DEPTS 소속 부서면 admin_head_on 토글만 반영
+    # - NURSE_HEAD_DEPTS 소속 부서면 nurse_head_on 토글만 반영
+    # - 둘 다 아니면(예: 의료진/임원진 등) 아무 것도 안 넣음(원하면 규칙 추가 가능)
+
+    boss_role = None
+    boss_toggle_on = False
+
+    if dept in ADMIN_HEAD_DEPTS:
+        boss_role = "admin_head"
+        boss_toggle_on = bool(tog and getattr(tog, "admin_head_on", False))
+    elif dept in NURSE_HEAD_DEPTS:
+        boss_role = "nurse_head"
+        boss_toggle_on = bool(tog and getattr(tog, "nurse_head_on", False))
+
+    if boss_role and boss_toggle_on:
+        uid = role_map.get(boss_role)
+        if uid:
+            u = db.session.get(User, uid)
+            if u:
+                p = _sig_abs_path(u, sig_folder)
+                if p:
+                    header_signatures["L3"] = p
+
+    # (병원장) O3
+    if tog and getattr(tog, "director_on", False):
+        uid = role_map.get("director")
+        if uid:
+            u = db.session.get(User, uid)
+            if u:
+                p = _sig_abs_path(u, sig_folder)
+                if p:
+                    header_signatures["O3"] = p
+
+
+    try:
+        xlsx_io = build_vacation_forms_xlsx(
+            str(template_path),
+            targets,
+            year=year,
+            month=month,
+            signatures_folder=sig_folder,
+            header_signatures=header_signatures,
+        )
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+    safe_dept = dept.replace("/", "_").replace("\\", "_").replace("..", "")
+    download_name = f"휴가계_{safe_dept}_{year}_{month:02d}.xlsx"
+
+    return send_file(
+        xlsx_io,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        max_age=0,
+    )
+
