@@ -245,7 +245,7 @@ def dept_lock():
         if dept != my_dept:
             return jsonify({"status": "error", "message": "내 부서만 확정할 수 있습니다."}), 403
 
-    if not _can_confirm_target_month(year, month):
+    if (not is_super) and (not _can_confirm_target_month(year, month)):
         return jsonify({"status": "error", "message": "확정은 해당 월의 29일 ~ 다음 달 4일에만 가능합니다."}), 400
 
     # ✅ 전원 개인확정 완료 후에만 잠금 허용(원하면 조건 제거 가능)
