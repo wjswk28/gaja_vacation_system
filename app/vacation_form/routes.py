@@ -264,13 +264,16 @@ def dept_lock():
     for u in users:
         db.session.add(DeptMonthRoster(department=dept, year=year, month=month, user_id=u.id))
 
-    # ✅ 서명 등록 여부 체크(기존 캘린더 확정과 동일)
-    sig = (getattr(current_user, "signature_image", None) or "").strip()
-    if not sig:
-        return jsonify({
-            "status": "error",
-            "message": "서명이 등록되어 있어야 확정할 수 있습니다. (내정보에서 서명 등록 후 확정하세요)"
-        }), 400
+    # ✅ 서명 등록 여부 체크
+    # - 중간관리자는 서명 필수
+    # - 총관리자(master)는 유지보수용 계정이므로 서명 없이도 잠금 가능
+    if not is_super:
+        sig = (getattr(current_user, "signature_image", None) or "").strip()
+        if not sig:
+            return jsonify({
+                "status": "error",
+                "message": "서명이 등록되어 있어야 확정할 수 있습니다. (내정보에서 서명 등록 후 확정하세요)"
+            }), 400
 
     # ✅ month_lock 적용(잠금) + 누가 잠갔는지 기록(서명 삽입에 필요)
     lk = MonthLock.query.filter_by(department=dept, year=year, month=month).first()
