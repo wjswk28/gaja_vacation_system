@@ -304,9 +304,9 @@ def user_confirm():
     is_super = bool(getattr(current_user, "is_superadmin", False))
     is_mgr = bool(getattr(current_user, "is_admin", False)) and (not is_super)
 
-    # ✅ 중간관리자(요구사항). 필요하면 총관리자도 허용 가능: (is_super or is_mgr)
-    if not is_mgr:
-        return jsonify({"status": "error", "message": "중간관리자만 사용할 수 있습니다."}), 403
+    # ✅ 총관리자/중간관리자 허용
+    if not (is_super or is_mgr):
+        return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
 
     data = request.get_json(silent=True) or {}
     user_id = int(data.get("user_id") or 0)
@@ -316,8 +316,8 @@ def user_confirm():
     if user_id <= 0 or year <= 0 or month <= 0:
         return jsonify({"status": "error", "message": "파라미터가 올바르지 않습니다."}), 400
 
-    # ✅ 확정 가능 기간 체크
-    if not _can_confirm_target_month(year, month):
+    # ✅ 중간관리자만 기간 제한 적용 / master는 언제나 가능
+    if (not is_super) and (not _can_confirm_target_month(year, month)):
         return jsonify({"status": "error", "message": "확정 가능한 기간이 아닙니다."}), 400
 
     target = db.session.get(User, user_id)
@@ -327,19 +327,19 @@ def user_confirm():
     my_dept = (current_user.department or "").strip()
     tgt_dept = (target.department or "").strip()
 
-    # ✅ 중간관리자는 자기 부서 직원만
-    if tgt_dept != my_dept:
+    # ✅ 중간관리자만 자기 부서 직원 제한
+    if is_mgr and tgt_dept != my_dept:
         return jsonify({"status": "error", "message": "내 부서 직원만 확정할 수 있습니다."}), 403
 
-    # ✅ 휴가계 대상자만 (스냅샷/재직/타겟 기준)
+    # ✅ 휴가계 대상자만
     targets = _dept_targets(tgt_dept, year, month)
     target_ids = {u.id for u in targets}
     if target.id not in target_ids:
         return jsonify({"status": "error", "message": "휴가계 대상자가 아닙니다."}), 400
 
-    # ✅ 부서 확정(잠금) 후에는 개인확정 변경 불가
+    # ✅ 중간관리자만 잠금 후 변경 불가 / master는 가능
     locked = MonthLock.query.filter_by(department=tgt_dept, year=year, month=month, locked=True).first()
-    if locked:
+    if (not is_super) and locked:
         return jsonify({"status": "error", "message": "이미 부서 확정(잠금)된 달입니다."}), 400
 
     # ✅ 토글(있으면 삭제, 없으면 생성)
@@ -358,7 +358,6 @@ def user_confirm():
 
     db.session.commit()
 
-    # ✅ 최신 카운트 계산해서 UI 즉시 업데이트에 사용
     confirmed_ids = set(
         r.user_id for r in UserMonthConfirm.query.filter_by(year=year, month=month).all()
     )
@@ -372,9 +371,8 @@ def user_confirm():
         "confirmed": confirmed_now,
         "total": total,
         "confirmed_cnt": confirmed_cnt,
-        "locked": False,
+        "locked": bool(locked),
     })
-
 
 @vacation_form_bp.route("/dept_unlock", methods=["POST"])
 @login_required
