@@ -235,7 +235,7 @@
           {% if item.members and item.members|length > 0 %}
             {% for m in item.members %}
               {% set is_confirmed = (m.id in confirmed_ids) %}
-              {% set can_proxy = (is_mgr and can_confirm and (not locked)) %}
+              {% set can_proxy = ((is_mgr and can_confirm and (not locked)) or is_super) %}
               <button type="button"
                       class="member-confirm-btn px-3 py-1.5 rounded-lg border text-sm transition
                             {{ 'cursor-pointer' if can_proxy else 'cursor-default opacity-50' }}
@@ -513,7 +513,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (countEl) countEl.textContent = `(${confirmedCnt}/${total})`;
   }
 
-  if (isMgr && canConfirm && userConfirmUrl) {
+  if (((isMgr && canConfirm) || isSuper) && userConfirmUrl) {
     document.querySelectorAll(".member-confirm-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         if (btn.disabled) return;
