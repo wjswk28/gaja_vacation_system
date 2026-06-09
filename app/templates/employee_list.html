@@ -104,7 +104,12 @@
               </td>
             {% endif %}
 
-            <td class="py-2 border-r border-slate-100 font-medium">{{ emp.name }}</td>
+            <td class="py-2 border-r border-slate-100 font-medium">
+              <a href="{{ url_for('employee.employee_vacation_history', emp_id=emp.id) }}"
+                class="text-sky-700 hover:text-sky-900 hover:underline font-semibold">
+                {{ emp.name }}
+              </a>
+            </td>
             <td class="py-2 border-r border-slate-100">{{ emp.username }}</td>
             {% if is_superadmin %}
               <td class="py-2 border-r border-slate-100">
