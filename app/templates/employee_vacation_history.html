@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="max-w-6xl mx-auto bg-white rounded-2xl shadow-lg border border-sky-100 py-4 px-4 md:px-6 mt-[0px] sm:mt-[8px] md:mt-[8px]">
+
+  <!-- 제목 영역 -->
+  <div class="flex items-center justify-center md:justify-start gap-2 mb-3">
+    <i data-lucide="calendar-days" class="w-7 h-7 text-sky-700"></i>
+    <span class="text-sky-800 font-bold text-xl md:text-2xl">
+      {{ target_user.name or target_user.username }} 휴가 사용 내역
+    </span>
+  </div>
+
+  <!-- 직원 기본 정보 -->
+  <div class="rounded-xl border border-sky-100 bg-sky-50/60 p-4 mb-5">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+      <div>
+        <span class="text-slate-500">이름</span>
+        <div class="font-semibold text-slate-800">
+          {{ target_user.name or target_user.username }}
+        </div>
+      </div>
+
+      <div>
+        <span class="text-slate-500">부서</span>
+        <div class="font-semibold text-slate-800">
+          {{ target_user.department or "-" }}
+        </div>
+      </div>
+
+      <div>
+        <span class="text-slate-500">입사일</span>
+        <div class="font-semibold text-slate-800">
+          {% if target_user.join_date %}
+            {{ target_user.join_date }}
+          {% else %}
+            -
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 요약 카드 -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+
+    <div class="rounded-xl border border-sky-100 bg-white shadow-sm p-4">
+      <div class="text-xs text-slate-500 mb-1">총 발생 연차</div>
+      <div class="text-xl font-bold text-sky-700">
+        {{ "%.2f"|format(summary.total_leave or 0) }}
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-amber-100 bg-white shadow-sm p-4">
+      <div class="text-xs text-slate-500 mb-1">대체연차 발생</div>
+      <div class="text-xl font-bold text-amber-600">
+        {{ "%.2f"|format(summary.alt_total or 0) }}
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-blue-100 bg-white shadow-sm p-4">
+      <div class="text-xs text-slate-500 mb-1">총 사용</div>
+      <div class="text-xl font-bold text-blue-600">
+        {{ "%.2f"|format(summary.used_total or 0) }}
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-emerald-100 bg-white shadow-sm p-4">
+      <div class="text-xs text-slate-500 mb-1">잔여 연차</div>
+      <div class="text-xl font-bold {% if summary.remaining_days < 0 %}text-red-600{% else %}text-green-600{% endif %}">
+        {{ "%.2f"|format(summary.remaining_days or 0) }}
+        <span class="text-sm text-slate-500">
+          ({{ "%.2f"|format(summary.alt_left or 0) }})
+        </span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 세부 요약 -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+
+    <div class="rounded-xl border border-slate-100 bg-white shadow-sm p-4">
+      <div class="text-xs text-slate-500 mb-1">도입 전 사용</div>
+      <div class="text-lg font-bold text-slate-700">
+        {{ "%.2f"|format(summary.used_before or 0) }}
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-100 bg-white shadow-sm p-4">
+      <div class="text-xs text-slate-500 mb-1">승인된 일정 사용</div>
+      <div class="text-lg font-bold text-slate-700">
+        {{ "%.2f"|format(summary.approved_used_from_events or 0) }}
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-100 bg-white shadow-sm p-4">
+      <div class="text-xs text-slate-500 mb-1">승인 / 신청</div>
+      <div class="text-lg font-bold text-slate-700">
+        {{ summary.approved_count }}건 / {{ summary.pending_count }}건
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 유형별 요약 -->
+  <div class="rounded-xl border border-sky-100 bg-white shadow-sm p-4 mb-5">
+    <div class="flex items-center gap-2 mb-3">
+      <i data-lucide="pie-chart" class="w-5 h-5 text-sky-700"></i>
+      <span class="font-bold text-sky-800">휴가 종류별 사용 요약</span>
+    </div>
+
+    {% if summary.type_summary %}
+      <div class="flex flex-wrap gap-2">
+        {% for type_name, days in summary.type_summary.items() %}
+          <div class="px-3 py-2 rounded-full bg-sky-50 border border-sky-100 text-sm">
+            <span class="font-semibold text-sky-800">{{ type_name }}</span>
+            <span class="text-slate-600">
+              {{ "%.2f"|format(days or 0) }}
+            </span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-sm text-slate-500">
+        승인된 휴가 사용 내역이 없습니다.
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- 상세 목록 -->
+  <div class="rounded-xl border border-sky-100 shadow-inner overflow-hidden table-container">
+    <div class="px-4 py-3 border-b border-sky-100 bg-gradient-to-r from-sky-50 to-white flex items-center gap-2">
+      <i data-lucide="list-checks" class="w-5 h-5 text-sky-700"></i>
+      <span class="font-bold text-sky-800">상세 사용 내역</span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm border-collapse">
+        <thead class="bg-gradient-to-r from-sky-50 to-sky-100 text-sky-700 border-b border-sky-200">
+          <tr>
+            <th class="py-2 px-2 border-r border-sky-200">날짜</th>
+            <th class="py-2 px-2 border-r border-sky-200">종류</th>
+            <th class="py-2 px-2 border-r border-sky-200">상태</th>
+            <th class="py-2 px-2 border-r border-sky-200">사용일수</th>
+            <th class="py-2 px-2 border-r border-sky-200">시간</th>
+            <th class="py-2 px-2 border-r border-sky-200">메모</th>
+            <th class="py-2 px-2">등록일</th>
+          </tr>
+        </thead>
+
+        <tbody class="divide-y divide-slate-100">
+          {% for v in vacation_rows %}
+          <tr class="text-center hover:bg-sky-50 transition">
+
+            <!-- 날짜 -->
+            <td class="py-2 px-2 border-r border-slate-100 whitespace-nowrap">
+              {% if v.start_date and v.end_date and v.start_date != v.end_date %}
+                {{ v.start_date.strftime('%Y-%m-%d') }} ~ {{ v.end_date.strftime('%Y-%m-%d') }}
+              {% elif v.start_date %}
+                {{ v.start_date.strftime('%Y-%m-%d') }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+
+            <!-- 종류 -->
+            <td class="py-2 px-2 border-r border-slate-100 font-semibold text-slate-700">
+              {{ v.type or "-" }}
+              {% if v.is_alt %}
+                <span class="ml-1 text-xs text-amber-600">(대체)</span>
+              {% endif %}
+            </td>
+
+            <!-- 상태 -->
+            <td class="py-2 px-2 border-r border-slate-100">
+              {% if v.approved %}
+                <span class="inline-flex items-center px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                  승인
+                </span>
+              {% else %}
+                <span class="inline-flex items-center px-2 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">
+                  신청
+                </span>
+              {% endif %}
+            </td>
+
+            <!-- 사용일수 -->
+            <td class="py-2 px-2 border-r border-slate-100 font-medium text-blue-600">
+              {% if v.approved %}
+                {{ "%.2f"|format(v.used_days or 0) }}
+              {% else %}
+                <span class="text-slate-400">-</span>
+              {% endif %}
+            </td>
+
+            <!-- 시간 -->
+            <td class="py-2 px-2 border-r border-slate-100 whitespace-nowrap">
+              {% if v.start_time and v.end_time %}
+                {{ v.start_time }} ~ {{ v.end_time }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+
+            <!-- 메모 -->
+            <td class="py-2 px-2 border-r border-slate-100 text-left max-w-xs">
+              <span class="whitespace-normal break-words">
+                {{ v.memo or "-" }}
+              </span>
+            </td>
+
+            <!-- 등록일 -->
+            <td class="py-2 px-2 whitespace-nowrap">
+              {% if v.created_at %}
+                {{ v.created_at.strftime('%Y-%m-%d %H:%M') }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" class="py-10 text-center text-slate-500">
+              휴가 사용 내역이 없습니다.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 하단 버튼 -->
+  <div class="mt-5 flex justify-between items-center">
+    <a href="javascript:history.back()"
+       class="inline-flex items-center px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-slate-700 text-sm">
+      ← 돌아가기
+    </a>
+  </div>
+
+</div>
+
+<style>
+th, td {
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  table {
+    min-width: 850px;
+    font-size: 0.85rem;
+  }
+}
+</style>
+
+{% endblock %}
