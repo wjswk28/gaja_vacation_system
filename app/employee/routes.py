@@ -249,6 +249,188 @@ def employee_list():
         sort=sort,  # ✅ 추가
     )
 
+# =====================================
+# 직원별 휴가 사용 내역
+# =====================================
+
+def vacation_used_days(vacation):
+    """
+    휴가 종류별 사용일수 계산
+    직원관리 페이지 계산 기준과 동일하게 맞춤
+    """
+    t = (vacation.type or "").strip()
+
+    if t == "연차":
+        return 1.0
+    elif t == "토연차":
+        return 0.75
+    elif t in ["반차", "반차(전)", "반차(후)"]:
+        return 0.5
+    elif t == "반반차":
+        return 0.25
+
+    # 사용 연차에 포함하지 않는 유형
+    return 0.0
+
+
+def can_view_employee_vacation_history(target_user):
+    """
+    직원별 휴가 사용 내역 접근 권한
+
+    접근 가능:
+    1. 총관리자 / master
+    2. 해당 직원과 같은 부서의 관리자
+    3. 총무과 직원
+    """
+    if current_user.is_superadmin:
+        return True
+
+    if current_user.department == "총무과":
+        return True
+
+    if current_user.is_admin and current_user.department == target_user.department:
+        return True
+
+    return False
+
+
+@employee_bp.route("/vacation_history/<int:emp_id>")
+@login_required
+def employee_vacation_history(emp_id):
+    target_user = User.query.get_or_404(emp_id)
+
+    # ✅ 권한 체크
+    if not can_view_employee_vacation_history(target_user):
+        abort(403)
+
+    # ✅ 해당 직원의 휴가 전체 조회
+    # - 본인이 직접 신청한 휴가: user_id
+    # - 관리자가 대신 등록한 휴가/일정: target_user_id
+    vacations = (
+        Vacation.query
+        .filter(
+            or_(
+                Vacation.user_id == target_user.id,
+                Vacation.target_user_id == target_user.id
+            )
+        )
+        .order_by(
+            Vacation.start_date.desc(),
+            Vacation.created_at.desc()
+        )
+        .all()
+    )
+
+    # ✅ 휴가 상세 row 구성
+    vacation_rows = []
+
+    approved_used_from_events = 0.0
+    pending_count = 0
+    approved_count = 0
+
+    type_summary = {}
+
+    for v in vacations:
+        used_days = vacation_used_days(v)
+
+        if v.approved:
+            approved_count += 1
+            approved_used_from_events += used_days
+
+            type_name = (v.type or "기타").strip()
+            type_summary[type_name] = round(
+                type_summary.get(type_name, 0.0) + used_days,
+                2
+            )
+        else:
+            pending_count += 1
+
+        vacation_rows.append({
+            "id": v.id,
+            "start_date": v.start_date,
+            "end_date": v.end_date,
+            "type": v.type,
+            "approved": v.approved,
+            "used_days": used_days,
+            "memo": v.memo,
+            "start_time": v.start_time,
+            "end_time": v.end_time,
+            "created_at": v.created_at,
+            "department": v.department,
+            "is_alt": v.is_alt,
+        })
+
+    # ✅ 총 발생 연차 계산
+    try:
+        from app.leave_utils import calculate_annual_leave
+        total_leave = calculate_annual_leave(target_user.join_date)
+    except Exception:
+        total_leave = float(target_user.remaining_days or 0.0)
+
+    # ✅ 도입 전 사용 연차
+    used_before = float(target_user.used_before_system or 0.0)
+
+    # ✅ 총 사용 연차
+    used_total = round(used_before + approved_used_from_events, 2)
+
+    # ✅ 대체연차 총 발생 계산
+    try:
+        from app.models import AltLeaveLog
+
+        logs = AltLeaveLog.query.all()
+        name_key = (
+            target_user.first_name
+            or target_user.name
+            or target_user.username
+            or ""
+        ).strip()
+
+        emp_logs = []
+
+        for log in logs:
+            summary_text = log.department_summary or ""
+            if (
+                f"({name_key})" in summary_text or
+                f"{name_key}," in summary_text or
+                f"{name_key})" in summary_text or
+                summary_text.endswith(name_key)
+            ):
+                emp_logs.append(log)
+
+        alt_total = sum(l.add_days for l in emp_logs)
+
+    except Exception:
+        alt_total = 0.0
+
+    # ✅ 대체연차 우선 차감
+    if used_total <= alt_total:
+        alt_left = round(alt_total - used_total, 2)
+        annual_left = float(total_leave)
+    else:
+        remain_use = used_total - alt_total
+        alt_left = 0.0
+        annual_left = round(float(total_leave) - remain_use, 2)
+
+    summary = {
+        "total_leave": total_leave,
+        "used_before": used_before,
+        "approved_used_from_events": round(approved_used_from_events, 2),
+        "used_total": used_total,
+        "remaining_days": annual_left,
+        "alt_total": round(alt_total, 2),
+        "alt_left": alt_left,
+        "approved_count": approved_count,
+        "pending_count": pending_count,
+        "type_summary": type_summary,
+    }
+
+    return render_template(
+        "employee_vacation_history.html",
+        target_user=target_user,
+        vacation_rows=vacation_rows,
+        summary=summary,
+    )
+
 # =======================
 # 아이디 중복 체크 (AJAX)
 # =======================
