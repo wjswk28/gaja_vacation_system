@@ -320,6 +320,7 @@ def employee_vacation_history(emp_id):
         )
         .all()
     )
+    exclude_history_types = ["탄력근무", "근무자"]
 
     # ✅ 휴가 상세 row 구성
     vacation_rows = []
@@ -331,6 +332,12 @@ def employee_vacation_history(emp_id):
     type_summary = {}
 
     for v in vacations:
+        v_type = (v.type or "").strip()
+
+        # ✅ 직원별 휴가 사용 내역에서는 연차와 무관한 항목 제외
+        if v_type in exclude_history_types:
+            continue
+
         used_days = vacation_used_days(v)
 
         if v.approved:
