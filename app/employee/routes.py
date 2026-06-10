@@ -140,18 +140,31 @@ def employee_list():
         ).all()
     
         used_from_events = 0.0
+        alt_used_from_events = 0.0
+
         for v in approved_vacs:
             t = (v.type or "").strip()
+
             if t == "연차":
-                used_from_events += 1.0
+                days = 1.0
             elif t == "토연차":
-                used_from_events += 0.75
+                days = 0.75
             elif t in ["반차", "반차(전)", "반차(후)"]:
-                used_from_events += 0.5
+                days = 0.5
             elif t == "반반차":
-                used_from_events += 0.25
-    
+                days = 0.25
+            else:
+                days = 0.0
+
+            used_from_events += days
+
+            # ✅ 총무과/master가 대체연차로 지정한 휴가만 대체연차 사용으로 계산
+            if bool(getattr(v, "is_alt", False)):
+                alt_used_from_events += days
+
         used_total = round(used_before + used_from_events, 2)
+        alt_used_total = round(alt_used_from_events, 2)
+        annual_used_total = round(used_total - alt_used_total, 2)
     
         # -------------------------
         # 3) 총 발생 대체연차 계산
@@ -174,15 +187,12 @@ def employee_list():
         alt_total = sum(l.add_days for l in emp_logs)
     
         # -------------------------
-        # 4) 대체연차 우선 차감
+        # 4) 잔여 계산
+        #    ✅ 이제 대체연차 우선차감 아님
+        #    ✅ is_alt=True 인 휴가만 대체연차 사용으로 계산
         # -------------------------
-        if used_total <= alt_total:
-            alt_left = round(alt_total - used_total, 2)
-            annual_left = float(total_leave)
-        else:
-            remain_use = used_total - alt_total
-            alt_left = 0.0
-            annual_left = round(float(total_leave) - remain_use, 2)
+        alt_left = round(float(alt_total or 0) - alt_used_total, 2)
+        annual_left = round(float(total_leave or 0) - annual_used_total, 2)
     
         # -------------------------
         # 5) 출력 데이터 구성
@@ -326,6 +336,7 @@ def employee_vacation_history(emp_id):
     vacation_rows = []
 
     approved_used_from_events = 0.0
+    alt_used_from_events = 0.0
     pending_count = 0
     approved_count = 0
 
@@ -343,6 +354,10 @@ def employee_vacation_history(emp_id):
         if v.approved:
             approved_count += 1
             approved_used_from_events += used_days
+
+            # ✅ 대체연차로 지정된 휴가만 대체연차 사용으로 계산
+            if bool(getattr(v, "is_alt", False)):
+                alt_used_from_events += used_days
 
             type_name = (v.type or "기타").strip()
             type_summary[type_name] = round(
@@ -379,6 +394,8 @@ def employee_vacation_history(emp_id):
 
     # ✅ 총 사용 연차
     used_total = round(used_before + approved_used_from_events, 2)
+    alt_used_total = round(alt_used_from_events, 2)
+    annual_used_total = round(used_total - alt_used_total, 2)
 
     # ✅ 대체연차 총 발생 계산
     try:
@@ -409,22 +426,20 @@ def employee_vacation_history(emp_id):
     except Exception:
         alt_total = 0.0
 
-    # ✅ 대체연차 우선 차감
-    if used_total <= alt_total:
-        alt_left = round(alt_total - used_total, 2)
-        annual_left = float(total_leave)
-    else:
-        remain_use = used_total - alt_total
-        alt_left = 0.0
-        annual_left = round(float(total_leave) - remain_use, 2)
+    # ✅ 이제 대체연차 우선 차감이 아니라
+    # ✅ is_alt=True 인 휴가만 대체연차 사용으로 계산
+    alt_left = round(float(alt_total or 0) - alt_used_total, 2)
+    annual_left = round(float(total_leave or 0) - annual_used_total, 2)
 
     summary = {
         "total_leave": total_leave,
         "used_before": used_before,
         "approved_used_from_events": round(approved_used_from_events, 2),
         "used_total": used_total,
+        "annual_used_total": annual_used_total,
         "remaining_days": annual_left,
         "alt_total": round(alt_total, 2),
+        "alt_used_total": alt_used_total,
         "alt_left": alt_left,
         "approved_count": approved_count,
         "pending_count": pending_count,
