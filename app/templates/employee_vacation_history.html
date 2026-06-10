@@ -60,8 +60,22 @@
 
     <div class="rounded-xl border border-blue-100 bg-white shadow-sm p-4">
       <div class="text-xs text-slate-500 mb-1">총 사용</div>
-      <div class="text-xl font-bold text-blue-600">
-        {{ "%.2f"|format(summary.used_total or 0) }}
+      <div class="text-xl font-bold">
+        <span class="text-blue-600">
+          {{ "%.2f"|format(summary.annual_used_total or 0) }}
+        </span>
+
+        <span class="text-slate-400 mx-1">+</span>
+
+        <span class="text-amber-600">
+          ({{ "%.2f"|format(summary.alt_used_total or 0) }})
+        </span>
+
+        <span class="text-slate-400 mx-1">=</span>
+
+        <span class="text-blue-600">
+          {{ "%.2f"|format(summary.used_total or 0) }}
+        </span>
       </div>
     </div>
 
