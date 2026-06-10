@@ -136,7 +136,13 @@ def employee_list():
         # -------------------------
         approved_vacs = Vacation.query.filter(
             Vacation.approved == True,
-            or_(Vacation.user_id == emp.id, Vacation.target_user_id == emp.id)
+            or_(
+                Vacation.target_user_id == emp.id,
+                and_(
+                    Vacation.target_user_id.is_(None),
+                    Vacation.user_id == emp.id
+                )
+            )
         ).all()
     
         used_from_events = 0.0
@@ -320,8 +326,15 @@ def employee_vacation_history(emp_id):
         Vacation.query
         .filter(
             or_(
-                Vacation.user_id == target_user.id,
-                Vacation.target_user_id == target_user.id
+                # ✅ 현재 표준: 실제 휴가/일정 주인
+                Vacation.target_user_id == target_user.id,
+
+                # ✅ 예전 데이터 보완:
+                # target_user_id가 비어 있는 옛날 기록만 user_id로 조회
+                and_(
+                    Vacation.target_user_id.is_(None),
+                    Vacation.user_id == target_user.id
+                )
             )
         )
         .order_by(
@@ -330,7 +343,7 @@ def employee_vacation_history(emp_id):
         )
         .all()
     )
-    exclude_history_types = ["탄력근무", "근무자"]
+    exclude_history_types = ["탄력근무", "근무자", "일정"]
 
     # ✅ 휴가 상세 row 구성
     vacation_rows = []
