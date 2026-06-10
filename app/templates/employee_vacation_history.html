@@ -70,12 +70,24 @@
       </div>
     </div>
 
-    <div class="rounded-xl border border-emerald-100 bg-white shadow-sm p-4">
+    <div class="rounded-xl border border-emerald-100 bg-white shadow-sm p-3 md:p-4">
       <div class="text-xs text-slate-500 mb-1">잔여 연차</div>
-      <div class="text-xl font-bold {% if summary.remaining_days < 0 %}text-red-600{% else %}text-green-600{% endif %}">
-        {{ "%.2f"|format(summary.remaining_days or 0) }}
-        <span class="text-sm text-slate-500">
+
+      <div class="font-bold whitespace-nowrap text-[15px] md:text-[16px] lg:text-[17px]">
+        <span class="{% if summary.remaining_days < 0 %}text-red-600{% else %}text-green-600{% endif %}">
+          {{ "%.2f"|format(summary.remaining_days or 0) }}
+        </span>
+
+        <span class="text-slate-400 mx-0.5">+</span>
+
+        <span class="text-amber-600">
           ({{ "%.2f"|format(summary.alt_left or 0) }})
+        </span>
+
+        <span class="text-slate-400 mx-0.5">=</span>
+
+        <span class="{% if (summary.remaining_days + summary.alt_left) < 0 %}text-red-600{% else %}text-green-600{% endif %}">
+          {{ "%.2f"|format((summary.remaining_days or 0) + (summary.alt_left or 0)) }}
         </span>
       </div>
     </div>
