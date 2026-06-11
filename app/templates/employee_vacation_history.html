@@ -44,19 +44,29 @@
   <!-- 요약 카드 -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
 
-    <div class="rounded-xl border border-sky-100 bg-white shadow-sm p-4">
+    <button type="button"
+            onclick="openModal('annualModal')"
+            class="text-left rounded-xl border border-sky-100 bg-white shadow-sm p-4 hover:bg-sky-50 transition">
       <div class="text-xs text-slate-500 mb-1">총 발생 연차</div>
       <div class="text-xl font-bold text-sky-700">
         {{ "%.2f"|format(summary.total_leave or 0) }}
       </div>
-    </div>
+      <div class="text-[11px] text-slate-400 mt-1">
+        클릭해서 계산 내역 보기
+      </div>
+    </button>
 
-    <div class="rounded-xl border border-amber-100 bg-white shadow-sm p-4">
+    <button type="button"
+            onclick="openModal('altLeaveModal')"
+            class="text-left rounded-xl border border-amber-100 bg-white shadow-sm p-4 hover:bg-amber-50 transition">
       <div class="text-xs text-slate-500 mb-1">대체연차 발생</div>
       <div class="text-xl font-bold text-amber-600">
         {{ "%.2f"|format(summary.alt_total or 0) }}
       </div>
-    </div>
+      <div class="text-[11px] text-slate-400 mt-1">
+        클릭해서 부여 이력 보기
+      </div>
+    </button>
 
     <div class="rounded-xl border border-blue-100 bg-white shadow-sm p-3 md:p-4">
       <div class="text-xs text-slate-500 mb-1">총 사용</div>
@@ -277,5 +287,230 @@ th, td {
   }
 }
 </style>
+<!-- ===============================
+  총 발생 연차 계산 모달
+=============================== -->
+<div id="annualModal" class="fixed inset-0 bg-black/40 z-50 hidden">
+  <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden">
+
+      <div class="px-5 py-4 border-b border-sky-100 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="calculator" class="w-5 h-5 text-sky-700"></i>
+          <span class="font-bold text-sky-800">총 발생 연차 계산 내역</span>
+        </div>
+
+        <button type="button"
+                onclick="closeModal('annualModal')"
+                class="text-slate-400 hover:text-slate-700 text-xl">
+          ×
+        </button>
+      </div>
+
+      <div class="p-5">
+        <div class="rounded-xl bg-sky-50 border border-sky-100 p-4 mb-4">
+          <div class="text-sm text-slate-500">총 발생 연차</div>
+          <div class="text-2xl font-bold text-sky-700">
+            {{ "%.2f"|format(summary.total_leave or 0) }}
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-sky-100">
+          <table class="min-w-full text-sm text-center">
+            <thead class="bg-sky-50 text-sky-800">
+              <tr>
+                <th class="px-3 py-2 border-r border-sky-100">발생년도</th>
+                <th class="px-3 py-2 border-r border-sky-100">구분</th>
+                <th class="px-3 py-2 border-r border-sky-100">계산식</th>
+                <th class="px-3 py-2">발생일수</th>
+              </tr>
+            </thead>
+
+            <tbody class="divide-y divide-slate-100">
+              {% for row in annual_breakdown_rows %}
+              <tr>
+                <td class="px-3 py-2 border-r border-slate-100">
+                  {{ row.year }}
+                </td>
+                <td class="px-3 py-2 border-r border-slate-100 font-semibold">
+                  {{ row.label }}
+                </td>
+                <td class="px-3 py-2 border-r border-slate-100 text-slate-600">
+                  {{ row.formula }}
+                </td>
+                <td class="px-3 py-2 font-bold text-sky-700">
+                  {{ "%.2f"|format(row.days or 0) }}
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="4" class="px-3 py-8 text-slate-500">
+                  계산 내역이 없습니다.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+
+            <tfoot class="bg-sky-50">
+              <tr>
+                <td colspan="3" class="px-3 py-2 text-right font-bold text-slate-700">
+                  합계
+                </td>
+                <td class="px-3 py-2 font-bold text-sky-700">
+                  {{ "%.2f"|format(annual_breakdown_total or 0) }}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="text-xs text-slate-400 mt-3">
+          ※ 실제 총 발생 연차는 시스템 계산값 기준으로 표시됩니다.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ===============================
+  대체연차 부여 이력 모달
+=============================== -->
+<div id="altLeaveModal" class="fixed inset-0 bg-black/40 z-50 hidden">
+  <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden">
+
+      <div class="px-5 py-4 border-b border-amber-100 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="history" class="w-5 h-5 text-amber-600"></i>
+          <span class="font-bold text-amber-700">대체연차 부여 이력</span>
+        </div>
+
+        <button type="button"
+                onclick="closeModal('altLeaveModal')"
+                class="text-slate-400 hover:text-slate-700 text-xl">
+          ×
+        </button>
+      </div>
+
+      <div class="p-5">
+        <div class="rounded-xl bg-amber-50 border border-amber-100 p-4 mb-4">
+          <div class="text-sm text-slate-500">대체연차 총 발생</div>
+          <div class="text-2xl font-bold text-amber-600">
+            {{ "%.2f"|format(summary.alt_total or 0) }}
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-amber-100">
+          <table class="min-w-full text-sm text-center">
+            <thead class="bg-amber-50 text-amber-700">
+              <tr>
+                <th class="px-3 py-2 border-r border-amber-100">부여일</th>
+                <th class="px-3 py-2 border-r border-amber-100">적용일자</th>
+                <th class="px-3 py-2 border-r border-amber-100">일수</th>
+                <th class="px-3 py-2 border-r border-amber-100">사유</th>
+                <th class="px-3 py-2">부여자</th>
+              </tr>
+            </thead>
+
+            <tbody class="divide-y divide-slate-100">
+              {% for log in alt_log_rows %}
+              <tr>
+                <td class="px-3 py-2 border-r border-slate-100 whitespace-nowrap">
+                  {% if log.grant_date %}
+                    {{ log.grant_date.strftime('%Y-%m-%d') }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+
+                <td class="px-3 py-2 border-r border-slate-100 whitespace-nowrap">
+                  {% if log.apply_date %}
+                    {{ log.apply_date.strftime('%Y-%m-%d') }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+
+                <td class="px-3 py-2 border-r border-slate-100 font-bold text-amber-600">
+                  {{ "%.2f"|format(log.add_days or 0) }}
+                </td>
+
+                <td class="px-3 py-2 border-r border-slate-100 text-left">
+                  {{ log.reason or "-" }}
+                </td>
+
+                <td class="px-3 py-2">
+                  {{ log.granted_by or "-" }}
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5" class="px-3 py-8 text-slate-500">
+                  대체연차 부여 이력이 없습니다.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+
+            <tfoot class="bg-amber-50">
+              <tr>
+                <td colspan="2" class="px-3 py-2 text-right font-bold text-slate-700">
+                  합계
+                </td>
+                <td class="px-3 py-2 font-bold text-amber-600">
+                  {{ "%.2f"|format(summary.alt_total or 0) }}
+                </td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<script>
+function openModal(id) {
+  const modal = document.getElementById(id);
+  if (!modal) return;
+
+  modal.classList.remove("hidden");
+
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+}
+
+function closeModal(id) {
+  const modal = document.getElementById(id);
+  if (!modal) return;
+
+  modal.classList.add("hidden");
+}
+
+// 배경 클릭 시 닫기
+document.addEventListener("click", function(e) {
+  const modal = e.target.closest(".fixed.inset-0");
+  if (!modal) return;
+
+  if (e.target === modal) {
+    modal.classList.add("hidden");
+  }
+});
+
+// ESC 닫기
+document.addEventListener("keydown", function(e) {
+  if (e.key !== "Escape") return;
+
+  document.querySelectorAll(".fixed.inset-0").forEach(function(modal) {
+    modal.classList.add("hidden");
+  });
+});
+</script>
 
 {% endblock %}
