@@ -191,6 +191,18 @@ def employee_list():
                 emp_logs.append(log)
     
         alt_total = sum(l.add_days for l in emp_logs)
+
+        alt_log_rows = []
+
+        for log in emp_logs:
+            alt_log_rows.append({
+                "grant_date": log.grant_date,
+                "apply_date": log.apply_date,
+                "reason": log.reason,
+                "add_days": log.add_days,
+                "granted_by": log.granted_by,
+                "department_summary": log.department_summary,
+            })
     
         # -------------------------
         # 4) 잔여 계산
@@ -309,6 +321,67 @@ def can_view_employee_vacation_history(target_user):
 
     return False
 
+def build_annual_leave_breakdown(join_date_value):
+    """
+    총 발생 연차 상세 계산 내역
+    - 입사 1년 후부터 15개
+    - 이후 2년마다 +1
+    - 최대 25개
+    - 2017-06-01 이후 입사자는 첫해 월차 최대 11개 추가
+    """
+    if not join_date_value:
+        return [], 0.0
+
+    if isinstance(join_date_value, str):
+        try:
+            join_date = datetime.strptime(join_date_value[:10], "%Y-%m-%d").date()
+        except Exception:
+            return [], 0.0
+    else:
+        join_date = join_date_value
+
+    today = date.today()
+    rows = []
+    total = 0.0
+
+    monthly_cutoff = date(2017, 6, 1)
+
+    # ✅ 2017-06-01 이후 입사자: 첫해 월차 최대 11개
+    if join_date >= monthly_cutoff:
+        first_year_months = min(11, max(0, (min(today, date(join_date.year + 1, join_date.month, join_date.day)) - join_date).days // 30))
+        if first_year_months > 0:
+            rows.append({
+                "year": join_date.year,
+                "label": "입사 1년 미만 월차",
+                "formula": f"1개월 개근 × {first_year_months}개월",
+                "days": float(first_year_months),
+            })
+            total += float(first_year_months)
+
+    # ✅ 입사 1년 후부터 매년 발생
+    service_year = 1
+
+    while True:
+        grant_year = join_date.year + service_year
+        grant_date = date(grant_year, join_date.month, join_date.day)
+
+        if grant_date > today:
+            break
+
+        # 1~2년차 15개, 3~4년차 16개, 5~6년차 17개...
+        annual_days = min(25, 15 + ((service_year - 1) // 2))
+
+        rows.append({
+            "year": grant_year,
+            "label": f"{service_year}년차",
+            "formula": f"15 + floor(({service_year} - 1) / 2)",
+            "days": float(annual_days),
+        })
+
+        total += float(annual_days)
+        service_year += 1
+
+    return rows, round(total, 2)
 
 @employee_bp.route("/vacation_history/<int:emp_id>")
 @login_required
@@ -402,6 +475,11 @@ def employee_vacation_history(emp_id):
     except Exception:
         total_leave = float(target_user.remaining_days or 0.0)
 
+    # ✅ 총 발생 연차 상세 계산 내역
+    annual_breakdown_rows, annual_breakdown_total = build_annual_leave_breakdown(
+        target_user.join_date
+    )
+
     # ✅ 도입 전 사용 연차
     used_before = float(target_user.used_before_system or 0.0)
 
@@ -410,11 +488,11 @@ def employee_vacation_history(emp_id):
     alt_used_total = round(alt_used_from_events, 2)
     annual_used_total = round(used_total - alt_used_total, 2)
 
-    # ✅ 대체연차 총 발생 계산
+    # ✅ 대체연차 총 발생 계산 + 부여 이력
     try:
         from app.models import AltLeaveLog
 
-        logs = AltLeaveLog.query.all()
+        logs = AltLeaveLog.query.order_by(AltLeaveLog.apply_date.desc()).all()
         name_key = (
             target_user.first_name
             or target_user.name
@@ -436,8 +514,21 @@ def employee_vacation_history(emp_id):
 
         alt_total = sum(l.add_days for l in emp_logs)
 
+        # ✅ 모달에서 보여줄 대체연차 부여 이력
+        alt_log_rows = []
+        for log in emp_logs:
+            alt_log_rows.append({
+                "grant_date": log.grant_date,
+                "apply_date": log.apply_date,
+                "reason": log.reason,
+                "add_days": log.add_days,
+                "granted_by": log.granted_by,
+                "department_summary": log.department_summary,
+            })
+
     except Exception:
         alt_total = 0.0
+        alt_log_rows = []
 
     # ✅ 이제 대체연차 우선 차감이 아니라
     # ✅ is_alt=True 인 휴가만 대체연차 사용으로 계산
@@ -464,6 +555,9 @@ def employee_vacation_history(emp_id):
         target_user=target_user,
         vacation_rows=vacation_rows,
         summary=summary,
+        alt_log_rows=alt_log_rows,
+        annual_breakdown_rows=annual_breakdown_rows,
+        annual_breakdown_total=annual_breakdown_total,
     )
 
 # =======================
