@@ -68,39 +68,33 @@
       </div>
     </button>
 
-    <div class="rounded-xl border border-blue-100 bg-white shadow-sm p-3 md:p-4">
+    <button type="button"
+            onclick="openModal('usedLeaveModal')"
+            class="text-left rounded-xl border border-blue-100 bg-white shadow-sm p-3 md:p-4 hover:bg-blue-50 transition">
       <div class="text-xs text-slate-500 mb-1">총 사용</div>
 
-      <div class="font-bold whitespace-nowrap text-[15px] md:text-[16px] lg:text-[17px]">
-        <span class="text-blue-600">{{ "%.2f"|format(summary.annual_used_total or 0) }}</span>
-        <span class="text-slate-400 mx-0.5">+</span>
-        <span class="text-amber-600">({{ "%.2f"|format(summary.alt_used_total or 0) }})</span>
-        <span class="text-slate-400 mx-0.5">=</span>
-        <span class="text-blue-600">{{ "%.2f"|format(summary.used_total or 0) }}</span>
+      <div class="text-xl font-bold text-blue-600">
+        {{ "%.2f"|format(summary.used_total or 0) }}
       </div>
-    </div>
 
-    <div class="rounded-xl border border-emerald-100 bg-white shadow-sm p-3 md:p-4">
+      <div class="text-[11px] text-slate-400 mt-1">
+        사용 계산 보기
+      </div>
+    </button>
+
+    <button type="button"
+            onclick="openModal('remainLeaveModal')"
+            class="text-left rounded-xl border border-emerald-100 bg-white shadow-sm p-3 md:p-4 hover:bg-emerald-50 transition">
       <div class="text-xs text-slate-500 mb-1">잔여 연차</div>
 
-      <div class="font-bold whitespace-nowrap text-[15px] md:text-[16px] lg:text-[17px]">
-        <span class="{% if summary.remaining_days < 0 %}text-red-600{% else %}text-green-600{% endif %}">
-          {{ "%.2f"|format(summary.remaining_days or 0) }}
-        </span>
-
-        <span class="text-slate-400 mx-0.5">+</span>
-
-        <span class="text-amber-600">
-          ({{ "%.2f"|format(summary.alt_left or 0) }})
-        </span>
-
-        <span class="text-slate-400 mx-0.5">=</span>
-
-        <span class="{% if (summary.remaining_days + summary.alt_left) < 0 %}text-red-600{% else %}text-green-600{% endif %}">
-          {{ "%.2f"|format((summary.remaining_days or 0) + (summary.alt_left or 0)) }}
-        </span>
+      <div class="text-xl font-bold {% if ((summary.remaining_days or 0) + (summary.alt_left or 0)) < 0 %}text-red-600{% else %}text-green-600{% endif %}">
+        {{ "%.2f"|format((summary.remaining_days or 0) + (summary.alt_left or 0)) }}
       </div>
-    </div>
+
+      <div class="text-[11px] text-slate-400 mt-1">
+        잔여 계산 보기
+      </div>
+    </button>
 
   </div>
 
@@ -437,7 +431,7 @@ th, td {
                   {{ "%.2f"|format(log.add_days or 0) }}
                 </td>
 
-                <td class="px-3 py-2 border-r border-slate-100 text-left">
+                <td class="px-3 py-2 border-r border-slate-100 text-left whitespace-normal break-words">
                   {{ log.reason or "-" }}
                 </td>
 
@@ -473,6 +467,172 @@ th, td {
   </div>
 </div>
 
+<!-- ===============================
+  총 사용 계산 모달
+=============================== -->
+<div id="usedLeaveModal" class="fixed inset-0 bg-black/40 z-50 hidden">
+  <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
+
+      <div class="px-5 py-4 border-b border-blue-100 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="calculator" class="w-5 h-5 text-blue-600"></i>
+          <span class="font-bold text-blue-700">총 사용 연차 계산</span>
+        </div>
+
+        <button type="button"
+                onclick="closeModal('usedLeaveModal')"
+                class="text-slate-400 hover:text-slate-700 text-xl">
+          ×
+        </button>
+      </div>
+
+      <div class="p-5">
+
+        <div class="rounded-xl border border-blue-100 bg-blue-50 p-4 mb-4">
+          <div class="text-sm text-slate-500 mb-1">총 사용</div>
+          <div class="text-2xl font-bold text-blue-600">
+            {{ "%.2f"|format(summary.used_total or 0) }}
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-100 overflow-hidden">
+          <table class="min-w-full text-sm">
+            <tbody class="divide-y divide-slate-100">
+
+              <tr>
+                <th class="w-1/2 text-left px-4 py-3 bg-slate-50 text-slate-600">
+                  일반연차 사용
+                </th>
+                <td class="px-4 py-3 text-right font-bold text-blue-600">
+                  {{ "%.2f"|format(summary.annual_used_total or 0) }}
+                </td>
+              </tr>
+
+              <tr>
+                <th class="w-1/2 text-left px-4 py-3 bg-slate-50 text-slate-600">
+                  대체연차 사용
+                </th>
+                <td class="px-4 py-3 text-right font-bold text-amber-600">
+                  {{ "%.2f"|format(summary.alt_used_total or 0) }}
+                </td>
+              </tr>
+
+              <tr>
+                <th class="w-1/2 text-left px-4 py-3 bg-blue-50 text-blue-700">
+                  계산식
+                </th>
+                <td class="px-4 py-3 text-right font-bold whitespace-nowrap">
+                  <span class="text-blue-600">
+                    {{ "%.2f"|format(summary.annual_used_total or 0) }}
+                  </span>
+                  <span class="text-slate-400 mx-1">+</span>
+                  <span class="text-amber-600">
+                    {{ "%.2f"|format(summary.alt_used_total or 0) }}
+                  </span>
+                  <span class="text-slate-400 mx-1">=</span>
+                  <span class="text-blue-600">
+                    {{ "%.2f"|format(summary.used_total or 0) }}
+                  </span>
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+
+        <div class="text-xs text-slate-400 mt-3">
+          ※ 대체연차 사용은 대체연차로 지정된 휴가만 합산합니다.
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ===============================
+  잔여 연차 계산 모달
+=============================== -->
+<div id="remainLeaveModal" class="fixed inset-0 bg-black/40 z-50 hidden">
+  <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
+
+      <div class="px-5 py-4 border-b border-emerald-100 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="calculator" class="w-5 h-5 text-green-600"></i>
+          <span class="font-bold text-green-700">잔여 연차 계산</span>
+        </div>
+
+        <button type="button"
+                onclick="closeModal('remainLeaveModal')"
+                class="text-slate-400 hover:text-slate-700 text-xl">
+          ×
+        </button>
+      </div>
+
+      <div class="p-5">
+
+        <div class="rounded-xl border border-emerald-100 bg-emerald-50 p-4 mb-4">
+          <div class="text-sm text-slate-500 mb-1">총 잔여 연차</div>
+          <div class="text-2xl font-bold {% if ((summary.remaining_days or 0) + (summary.alt_left or 0)) < 0 %}text-red-600{% else %}text-green-600{% endif %}">
+            {{ "%.2f"|format((summary.remaining_days or 0) + (summary.alt_left or 0)) }}
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-100 overflow-hidden">
+          <table class="min-w-full text-sm">
+            <tbody class="divide-y divide-slate-100">
+
+              <tr>
+                <th class="w-1/2 text-left px-4 py-3 bg-slate-50 text-slate-600">
+                  일반연차 잔여
+                </th>
+                <td class="px-4 py-3 text-right font-bold {% if summary.remaining_days < 0 %}text-red-600{% else %}text-green-600{% endif %}">
+                  {{ "%.2f"|format(summary.remaining_days or 0) }}
+                </td>
+              </tr>
+
+              <tr>
+                <th class="w-1/2 text-left px-4 py-3 bg-slate-50 text-slate-600">
+                  대체연차 잔여
+                </th>
+                <td class="px-4 py-3 text-right font-bold text-amber-600">
+                  {{ "%.2f"|format(summary.alt_left or 0) }}
+                </td>
+              </tr>
+
+              <tr>
+                <th class="w-1/2 text-left px-4 py-3 bg-emerald-50 text-green-700">
+                  계산식
+                </th>
+                <td class="px-4 py-3 text-right font-bold whitespace-nowrap">
+                  <span class="{% if summary.remaining_days < 0 %}text-red-600{% else %}text-green-600{% endif %}">
+                    {{ "%.2f"|format(summary.remaining_days or 0) }}
+                  </span>
+                  <span class="text-slate-400 mx-1">+</span>
+                  <span class="text-amber-600">
+                    {{ "%.2f"|format(summary.alt_left or 0) }}
+                  </span>
+                  <span class="text-slate-400 mx-1">=</span>
+                  <span class="{% if ((summary.remaining_days or 0) + (summary.alt_left or 0)) < 0 %}text-red-600{% else %}text-green-600{% endif %}">
+                    {{ "%.2f"|format((summary.remaining_days or 0) + (summary.alt_left or 0)) }}
+                  </span>
+                </td>
+              </tr>
+
+            </tbody>
+          </table>
+        </div>
+
+        <div class="text-xs text-slate-400 mt-3">
+          ※ 잔여 연차는 일반연차 잔여와 대체연차 잔여를 합산한 값입니다.
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 function openModal(id) {
@@ -511,6 +671,7 @@ document.addEventListener("keydown", function(e) {
     modal.classList.add("hidden");
   });
 });
+
 </script>
 
 {% endblock %}
