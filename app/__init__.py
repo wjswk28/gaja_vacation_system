@@ -1,8 +1,8 @@
 import os
 import shutil
-from flask import Flask, redirect, url_for
+from flask import Flask, redirect, url_for, flash, request, session
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager
+from flask_login import LoginManager, current_user, logout_user
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -100,6 +100,46 @@ def create_app():
     ]
     for bp in bp_list:
         app.register_blueprint(bp)
+
+        # =============================
+    # 퇴사자 기존 로그인 세션 차단
+    # =============================
+    @app.before_request
+    def block_resigned_user():
+        # 로그인 페이지·로그아웃·정적 파일은 검사 제외
+        if request.endpoint in {
+            "auth.login",
+            "auth.logout",
+            "static",
+        }:
+            return None
+
+        if current_user.is_authenticated:
+            status = (
+                getattr(current_user, "employment_status", None)
+                or "재직중"
+            ).strip()
+
+            if status == "퇴사":
+                logout_user()
+                session_keys = [
+                    "user_id",
+                    "username",
+                    "department",
+                    "is_admin",
+                    "is_superadmin",
+                ]
+
+                for key in session_keys:
+                    session.pop(key, None)
+
+                flash(
+                    "퇴사 처리된 계정입니다. 로그인할 수 없습니다.",
+                    "error"
+                )
+                return redirect(url_for("auth.login"))
+
+        return None
 
     # =============================
     # Root → 로그인페이지 리다이렉트
