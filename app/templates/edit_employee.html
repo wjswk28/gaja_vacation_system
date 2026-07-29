@@ -84,18 +84,20 @@
              class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition" required>
     </div>
 
-    <!-- ✅ 직원 상태: 직원관리 테이블에서만 변경 -->
+    <!-- ✅ 현재 직원 상태 -->
     <div>
       <label class="block text-sm font-medium text-slate-600 mb-1">
         직원 상태
       </label>
+
       <input type="text"
             value="{{ employee.employment_status or '재직중' }}"
             disabled
             class="w-full border border-slate-200 rounded-lg px-3 py-2
                     text-sm bg-slate-50 text-slate-600 shadow-inner">
+
       <p class="text-xs text-slate-400 mt-1">
-        직원 상태는 직원관리 화면의 상태 드롭다운에서 변경합니다.
+        상태 변경은 직원관리 화면의 드롭다운에서 진행합니다.
       </p>
     </div>
 
@@ -104,12 +106,54 @@
       <label class="block text-sm font-medium text-slate-600 mb-1">
         퇴사일
       </label>
+
       <input type="text"
             value="{{ employee.resign_date.strftime('%Y-%m-%d') if employee.resign_date else '-' }}"
             disabled
             class="w-full border border-slate-200 rounded-lg px-3 py-2
                     text-sm bg-slate-50 text-slate-600 shadow-inner">
     </div>
+
+    {% if can_manage_status %}
+      <!-- ✅ 상태 시작일 -->
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">
+          상태 시작일
+        </label>
+
+        <input type="date"
+              name="status_start_date"
+              value="{{ employee.status_start_date.strftime('%Y-%m-%d') if employee.status_start_date else '' }}"
+              class="w-full border border-sky-200
+                      bg-gradient-to-r from-sky-50 to-white
+                      rounded-lg px-3 py-2 text-sm
+                      focus:ring-2 focus:ring-sky-400
+                      focus:border-sky-400 transition">
+      </div>
+
+      <!-- ✅ 상태 종료일 -->
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">
+          상태 종료일
+        </label>
+
+        <input type="date"
+              name="status_end_date"
+              value="{{ employee.status_end_date.strftime('%Y-%m-%d') if employee.status_end_date else '' }}"
+              class="w-full border border-sky-200
+                      bg-gradient-to-r from-sky-50 to-white
+                      rounded-lg px-3 py-2 text-sm
+                      focus:ring-2 focus:ring-sky-400
+                      focus:border-sky-400 transition">
+      </div>
+
+      <div class="md:col-span-2">
+        <p class="text-xs text-slate-500">
+          육아휴직·출산휴가·장기병가·무급휴가 기간을 입력합니다.
+          퇴사는 종료일 없이 시작일만 사용할 수 있습니다.
+        </p>
+      </div>
+    {% endif %}
 
     <!-- ✅ 주소 -->
     <div class="md:col-span-2">
