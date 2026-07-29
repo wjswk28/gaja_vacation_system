@@ -20,6 +20,10 @@
           부서 선택:
         </label>
 
+        <input type="hidden"
+               name="status"
+               value="{{ selected_status }}">
+
         <select id="deptSelect"
                 name="dept"
                 class="border border-sky-300 rounded-lg px-3 py-1 text-sky-800 bg-white shadow-sm text-sm"
@@ -38,6 +42,41 @@
     {% endif %}
   </h2>
 
+  <!-- =================================
+       직원 상태 필터
+  ================================== -->
+  <div class="flex flex-wrap items-center gap-2 mb-4">
+    <span class="text-sm font-medium text-slate-600 mr-1">
+      상태:
+    </span>
+
+    {% for status_name in [
+      '전체',
+      '재직중',
+      '육아휴직',
+      '출산휴가',
+      '장기병가',
+      '무급휴가',
+      '퇴사'
+    ] %}
+      <a href="{{ url_for(
+            'employee.employee_list',
+            dept=current_dept,
+            status=status_name,
+            sort=sort
+          ) }}"
+         class="inline-flex items-center px-3 py-1.5 rounded-lg border
+                text-xs font-semibold transition
+                {% if selected_status == status_name %}
+                  bg-sky-600 border-sky-600 text-white
+                {% else %}
+                  bg-white border-slate-200 text-slate-600
+                  hover:bg-sky-50 hover:text-sky-700
+                {% endif %}">
+        {{ status_name }}
+      </a>
+    {% endfor %}
+  </div>
 
   {% if employees %}
 <!-- 테이블 래퍼 -->
@@ -52,29 +91,52 @@
             <th class="py-2 px-2 border-r border-sky-200">
               {% if sort == 'name' %}
                 <!-- 다시 누르면 원래대로 -->
-                <a href="{{ url_for('employee.employee_list', dept=current_dept) }}"
+                <a href="{{ url_for(
+                      'employee.employee_list',
+                      dept=current_dept,
+                      status=selected_status
+                    ) }}"
                   class="inline-flex items-center gap-1 hover:text-sky-700">
                   이름
                 </a>
               {% else %}
-                <a href="{{ url_for('employee.employee_list', dept=current_dept, sort='name') }}"
+                <a href="{{ url_for(
+                      'employee.employee_list',
+                      dept=current_dept,
+                      status=selected_status,
+                      sort='name'
+                    ) }}"
                   class="inline-flex items-center gap-1 hover:text-sky-700">
                   이름
                 </a>
               {% endif %}
             </th>
             <th class="py-2 px-2 border-r border-sky-200">아이디</th>
+
+            <th class="py-2 px-2 border-r border-sky-200">
+              상태
+            </th>
+
             {% if is_superadmin %}
               <th class="py-2 px-2 border-r border-sky-200">전화번호</th>
             {% endif %}
             <th class="py-2 px-2 border-r border-sky-200">
               {% if sort == 'join_date' %}
-                <a href="{{ url_for('employee.employee_list', dept=current_dept) }}"
+                <a href="{{ url_for(
+                      'employee.employee_list',
+                      dept=current_dept,
+                      status=selected_status
+                    ) }}"
                   class="inline-flex items-center gap-1 hover:text-sky-700">
                   입사일
                 </a>
               {% else %}
-                <a href="{{ url_for('employee.employee_list', dept=current_dept, sort='join_date') }}"
+                <a href="{{ url_for(
+                      'employee.employee_list',
+                      dept=current_dept,
+                      status=selected_status,
+                      sort='join_date'
+                    ) }}"
                   class="inline-flex items-center gap-1 hover:text-sky-700">
                   입사일
                 </a>
@@ -89,8 +151,7 @@
             {% if is_superadmin %}
               <th class="py-2 px-2 border-r border-sky-200">관리자 지정</th>
               <th class="py-2 px-2 border-r border-sky-200">서명</th>
-              <th class="py-2 px-2 border-r border-sky-200">수정</th>
-              <th class="py-2 px-2">삭제</th>
+              <th class="py-2 px-2">수정</th>
             {% endif %}
           </tr>
         </thead>
@@ -111,6 +172,73 @@
               </a>
             </td>
             <td class="py-2 border-r border-slate-100">{{ emp.username }}</td>
+
+            <!-- 직원 상태 -->
+            <td class="py-2 px-2 border-r border-slate-100">
+              {% if can_manage_status %}
+
+                <!-- 총무과 직원 또는 master: 드롭다운으로 변경 가능 -->
+                <select
+                  class="employee-status-select min-w-[92px] border rounded-lg
+                        px-2 py-1 text-xs font-semibold bg-white shadow-sm
+                        focus:ring-2 focus:ring-sky-300 focus:outline-none
+                        {% if emp.employment_status == '재직중' %}
+                          border-emerald-300 text-emerald-700
+                        {% elif emp.employment_status == '육아휴직' %}
+                          border-violet-300 text-violet-700
+                        {% elif emp.employment_status == '출산휴가' %}
+                          border-pink-300 text-pink-700
+                        {% elif emp.employment_status == '장기병가' %}
+                          border-orange-300 text-orange-700
+                        {% elif emp.employment_status == '무급휴가' %}
+                          border-slate-300 text-slate-700
+                        {% elif emp.employment_status == '퇴사' %}
+                          border-rose-300 text-rose-700
+                        {% endif %}"
+                  data-user-id="{{ emp.id }}"
+                  data-employee-name="{{ emp.name }}"
+                  data-current-status="{{ emp.employment_status or '재직중' }}">
+
+                  {% for status_name in [
+                    '재직중',
+                    '육아휴직',
+                    '출산휴가',
+                    '장기병가',
+                    '무급휴가',
+                    '퇴사'
+                  ] %}
+                    <option value="{{ status_name }}"
+                            {% if (emp.employment_status or '재직중') == status_name %}
+                              selected
+                            {% endif %}>
+                      {{ status_name }}
+                    </option>
+                  {% endfor %}
+                </select>
+
+              {% else %}
+
+                <!-- 그 외 직원: 상태 표시만 -->
+                <span class="inline-flex px-2 py-1 rounded-full border
+                            text-xs font-semibold
+                            {% if emp.employment_status == '재직중' %}
+                              bg-emerald-50 border-emerald-200 text-emerald-700
+                            {% elif emp.employment_status == '육아휴직' %}
+                              bg-violet-50 border-violet-200 text-violet-700
+                            {% elif emp.employment_status == '출산휴가' %}
+                              bg-pink-50 border-pink-200 text-pink-700
+                            {% elif emp.employment_status == '장기병가' %}
+                              bg-orange-50 border-orange-200 text-orange-700
+                            {% elif emp.employment_status == '무급휴가' %}
+                              bg-slate-50 border-slate-200 text-slate-700
+                            {% elif emp.employment_status == '퇴사' %}
+                              bg-rose-50 border-rose-200 text-rose-700
+                            {% endif %}">
+                  {{ emp.employment_status or "재직중" }}
+                </span>
+
+              {% endif %}
+            </td>
             {% if is_superadmin %}
               <td class="py-2 border-r border-slate-100">
                 {{ emp.phone or "-" }}
@@ -205,22 +333,13 @@
               </td>
 
               <!-- 수정 -->
-              <td class="py-2 border-r border-slate-100">
+              <td class="py-2">
                 <a href="{{ url_for('employee.edit_employee', emp_id=emp.id) }}"
                    class="text-xs px-2 py-1 rounded border border-slate-300 bg-sky-100 hover:bg-sky-200 text-sky-700 transition">
                    ✏ 수정
                 </a>
               </td>
 
-              <!-- 삭제 -->
-              <td class="py-2">
-                <button
-                  class="text-rose-600 hover:text-rose-700 hover:underline text-xs delete-employee-btn"
-                  data-user-id="{{ emp.id }}"
-                  data-delete-url="{{ url_for('employee.delete_employee', emp_id=emp.id) }}">
-                  삭제
-                </button>
-              </td>
             {% endif %}
           </tr>
           {% endfor %}
@@ -229,7 +348,9 @@
     </div>
   </div>
   {% else %}
-  <p class="text-center text-slate-500 text-sm mt-3">등록된 직원이 없습니다.</p>
+  <p class="text-center text-slate-500 text-sm mt-3">
+    '{{ selected_status }}' 상태에 해당하는 직원이 없습니다.
+  </p>
   {% endif %}
 </div>
 
@@ -401,20 +522,79 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  document.querySelectorAll(".delete-employee-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.dataset.userId;
-      if (!confirm("정말 삭제하시겠습니까?")) return;
+  // ✅ 직원 상태 변경
+  document.querySelectorAll(".employee-status-select").forEach(select => {
+    select.addEventListener("change", async () => {
+      const userId = select.dataset.userId;
+      const employeeName = select.dataset.employeeName || "해당 직원";
+      const oldStatus = select.dataset.currentStatus || "재직중";
+      const newStatus = select.value;
+
+      if (oldStatus === newStatus) {
+        return;
+      }
+
+      let message =
+        `${employeeName} 직원의 상태를\n` +
+        `'${oldStatus}' → '${newStatus}'(으)로 변경할까요?`;
+
+      if (newStatus === "퇴사") {
+        message =
+          `${employeeName} 직원을 퇴사 처리할까요?\n\n` +
+          `• 직원 정보는 삭제되지 않습니다.\n` +
+          `• 과거 연차와 캘린더 기록은 유지됩니다.\n` +
+          `• 해당 직원의 로그인은 차단됩니다.\n` +
+          `• 관리자 권한이 있다면 자동 해제됩니다.`;
+      }
+
+      const confirmed = confirm(message);
+
+      if (!confirmed) {
+        select.value = oldStatus;
+        return;
+      }
+
+      select.disabled = true;
+
       try {
-        const res = await axios.post(`/employee/delete/${id}`);
+        const res = await axios.post(
+          `/employee/status/${userId}`,
+          {
+            employment_status: newStatus
+          }
+        );
+
         if (res.data && res.data.status === "success") {
-          document.getElementById(`employee-row-${id}`).remove();
-          alert("직원이 삭제되었습니다.");
+          select.dataset.currentStatus = newStatus;
+
+          alert(
+            res.data.message ||
+            "직원 상태가 변경되었습니다."
+          );
+
+          // 현재 상태 필터에 맞춰 목록 다시 불러오기
+          window.location.reload();
         } else {
-          alert(res.data.message || "삭제 실패");
+          select.value = oldStatus;
+          alert(
+            res.data?.message ||
+            "직원 상태 변경에 실패했습니다."
+          );
         }
+
       } catch (err) {
-        alert("서버 통신 오류가 발생했습니다.");
+        console.error(err);
+
+        select.value = oldStatus;
+
+        const errorMessage =
+          err.response?.data?.message ||
+          "서버 통신 오류가 발생했습니다.";
+
+        alert(errorMessage);
+
+      } finally {
+        select.disabled = false;
       }
     });
   });
