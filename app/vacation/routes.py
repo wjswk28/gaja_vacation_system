@@ -161,6 +161,7 @@ def add_event():
                 # ✅ 근무하는 사람을 DB에서 정확히 찾기 (선택부서에서만)
                 worker_user = User.query.filter(
                     func.trim(User.department) == selected_dept,
+                    User.employment_status == "재직중",
                     or_(
                         func.trim(User.name) == name,
                         func.trim(User.first_name) == name
@@ -218,6 +219,7 @@ def add_event():
             if target_name:
                 target_user = User.query.filter(
                     func.trim(User.department) == "의료진",
+                    User.employment_status == "재직중",
                     or_(
                         func.trim(User.first_name) == target_name,
                         func.trim(User.name) == target_name
@@ -236,6 +238,7 @@ def add_event():
             if target_name and (current_user.is_admin or current_user.is_superadmin):
                 tu = User.query.filter(
                     func.trim(User.department) == selected_dept,
+                    User.employment_status == "재직중",
                     or_(
                         func.trim(User.first_name) == target_name,
                         func.trim(User.name) == target_name
@@ -530,7 +533,10 @@ def pending_vacations():
 
     # 🔥 날짜 기준 정렬 (오름차순)
     pending = sorted(pending, key=lambda v: v.start_date)
-    users = User.query.filter_by(department=current_user.department).all()
+    users = User.query.filter_by(
+        department=current_user.department,
+        employment_status="재직중",
+    ).all()
     return render_template("pending_vacations.html", vacations=pending, users=users)
 
 
@@ -609,6 +615,7 @@ def add_flex_event():
     # ✅ 타겟 직원 조회: 선택된 부서에서만 찾기 (동명이인/타부서 방지)
     target_user = User.query.filter(
         func.trim(User.department) == func.trim(selected_dept),
+        User.employment_status == "재직중",
         or_(
             func.trim(User.first_name) == target_name,
             func.trim(User.name) == target_name,
