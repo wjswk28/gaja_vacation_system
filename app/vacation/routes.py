@@ -248,6 +248,21 @@ def add_event():
                     return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 200
                 target_user = tu
 
+        # ✅ 휴직·퇴사 상태 직원 신규 일정 등록 차단
+        target_status = (
+            target_user.employment_status or "재직중"
+        ).strip()
+
+        if target_status != "재직중":
+            return jsonify({
+                "status": "error",
+                "message": (
+                    f"{target_user.name or target_user.username}님은 "
+                    f"현재 '{target_status}' 상태이므로 "
+                    "신규 휴가나 근무 일정을 등록할 수 없습니다."
+                )
+            }), 400
+
         # ✅ 표시용 이름 통일 (근무표/리스트에서 흔들리지 않게)
         display_name = (target_user.name or target_user.first_name or target_user.username or "").strip()
 
