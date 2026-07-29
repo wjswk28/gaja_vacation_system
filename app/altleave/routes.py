@@ -22,7 +22,9 @@ def grant_alt_leave():
 
     # 부서별 직원 정렬
     users = (
-        User.query.filter(User.is_superadmin == False)
+        User.query
+        .filter(User.is_superadmin == False)
+        .filter(User.employment_status == "재직중")
         .order_by(User.department, User.name)
         .all()
     )
@@ -57,7 +59,20 @@ def grant_alt_leave():
             return redirect(url_for("altleave.grant_alt_leave"))
 
         # 대상자 불러오기
-        selected_users = User.query.filter(User.id.in_(user_ids)).all()
+        selected_users = (
+            User.query
+            .filter(User.id.in_(user_ids))
+            .filter(User.employment_status == "재직중")
+            .filter(User.is_superadmin == False)
+            .all()
+        )
+
+        if len(selected_users) != len(set(user_ids)):
+            flash(
+                "재직중인 직원에게만 대체연차를 부여할 수 있습니다.",
+                "error"
+            )
+            return redirect(url_for("altleave.grant_alt_leave"))
 
         # 부서별 이름 요약 만들기
         dept_map = {}
