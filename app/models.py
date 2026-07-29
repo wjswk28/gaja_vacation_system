@@ -65,6 +65,11 @@ class User(UserMixin, db.Model):
     # 퇴사 상태일 때만 사용
     resign_date = db.Column(db.Date, nullable=True)
 
+    # 상태 적용 기간
+    # 육아휴직·출산휴가·장기병가·무급휴가 등에 공통 사용
+    status_start_date = db.Column(db.Date, nullable=True)
+    status_end_date = db.Column(db.Date, nullable=True)
+
     # ✅ NEW: 휴가계 대상자 여부(기본 True)
     is_vacation_form_target = db.Column(db.Boolean, default=True, nullable=False)
 
