@@ -77,7 +77,9 @@ def export_schedule(dept):
             )
     # ====== 직원 목록 ======
     employees = (
-        User.query.filter_by(department=dept)
+        User.query
+        .filter(User.department == dept)
+        .filter(User.employment_status == "재직중")
         .order_by(User.join_date.asc())
         .all()
     )
