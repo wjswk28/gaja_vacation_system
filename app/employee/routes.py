@@ -13,7 +13,7 @@ from flask import (
 from flask_login import login_required, current_user
 from datetime import datetime, date
 from app.employee import employee_bp
-from app.models import User, Vacation
+from app.models import User, Vacation, EMPLOYMENT_STATUSES
 from app import db
 from sqlalchemy import or_, and_
 import os
@@ -43,6 +43,24 @@ def hangul_sort_key(text: str):
 
     return [char_key(ch) for ch in text]
 
+def can_manage_employment_status():
+    """
+    직원 상태 변경 권한
+
+    가능:
+    1. master / 총관리자
+    2. 총무과 소속 직원
+
+    부서 관리자 권한만으로는 상태 변경 불가
+    """
+    if bool(getattr(current_user, "is_superadmin", False)):
+        return True
+
+    if (getattr(current_user, "department", "") or "").strip() == "총무과":
+        return True
+
+    return False
+
 # =====================================
 # 직원 목록
 # =====================================
@@ -50,6 +68,24 @@ def hangul_sort_key(text: str):
 @login_required
 def employee_list():
     user = current_user
+
+    selected_status = (
+        request.args.get("status", "재직중")
+        or "재직중"
+    ).strip()
+
+    allowed_status_filters = {
+        "전체",
+        "재직중",
+        "육아휴직",
+        "출산휴가",
+        "장기병가",
+        "무급휴가",
+        "퇴사",
+    }
+
+    if selected_status not in allowed_status_filters:
+        selected_status = "재직중"
 
     # 🔹 총관리자 → 모든 부서 선택 가능 (직원이 없어도 기본 부서 항상 노출, '관리자'는 제외)
     if user.is_superadmin:
@@ -97,19 +133,51 @@ def employee_list():
 
         # 5) 선택된 부서의 직원 목록
         if current_dept == "all":
-            employees_raw = User.query.filter(
+            query = User.query.filter(
                 User.department.isnot(None),
                 User.department != "관리자"
-            ).all()
+            )
+
+            if selected_status != "전체":
+                query = query.filter(
+                    User.employment_status == selected_status
+                )
+
+            employees_raw = query.all()
         else:
-            employees_raw = User.query.filter_by(department=current_dept).all() if current_dept else []
+            if current_dept:
+                query = User.query.filter(
+                    User.department == current_dept
+                )
+
+                if selected_status != "전체":
+                    query = query.filter(
+                        User.employment_status == selected_status
+                    )
+
+                employees_raw = query.all()
+            else:
+                employees_raw = []
 
 
     # 🔹 일반 관리자 / 일반 사용자 → 자기 부서만
     else:
         current_dept = user.department
-        departments = None  # 템플릿에서 드롭다운 숨길 때 사용
-        employees_raw = User.query.filter_by(department=current_dept).all() if current_dept else []
+        departments = None
+
+        if current_dept:
+            query = User.query.filter(
+                User.department == current_dept
+            )
+
+            if selected_status != "전체":
+                query = query.filter(
+                    User.employment_status == selected_status
+                )
+
+            employees_raw = query.all()
+        else:
+            employees_raw = []
 
     # =========================
     # 연차 / 대체연차 계산용 뷰 모델
@@ -220,6 +288,9 @@ def employee_list():
             "department": emp.department,   # ✅ 추가
             "name": emp.name or emp.username,
             "username": emp.username,
+            "employment_status": emp.employment_status or "재직중",
+            "status_changed_at": emp.status_changed_at,
+            "resign_date": emp.resign_date,
             "join_date": emp.join_date,
             "total_leave": total_leave,
             "used_total": used_total,
@@ -275,7 +346,10 @@ def employee_list():
         departments=departments,
         is_superadmin=user.is_superadmin,
         sort=sort,  # ✅ 추가
+        selected_status=selected_status,
+        can_manage_status=can_manage_employment_status(),
     )
+
 
 # =====================================
 # 직원별 휴가 사용 내역
@@ -627,6 +701,10 @@ def employee_register():
             remaining_days=15,
             is_admin=False,
             is_superadmin=False,
+            # ✅ 신규 직원 기본 상태
+            employment_status="재직중",
+            status_changed_at=date.today(),
+            resign_date=None,
         )
 
         db.session.add(new_user)
@@ -866,28 +944,81 @@ def upload_signature():
     })
 
 # =====================================
-# 직원 삭제
+# 직원 완전 삭제 차단
 # =====================================
 @employee_bp.route("/delete/<int:emp_id>", methods=["POST"])
 @login_required
 def delete_employee(emp_id):
-    if not current_user.is_superadmin:
-        return jsonify({"status": "error", "message": "삭제 권한이 없습니다."})
+    return jsonify({
+        "status": "error",
+        "message": "직원 완전 삭제 기능은 중단되었습니다. 직원 상태를 변경해주세요."
+    }), 403
+
+# =====================================
+# 직원 상태 변경
+# 총무과 직원 또는 master만 가능
+# =====================================
+@employee_bp.route("/status/<int:emp_id>", methods=["POST"])
+@login_required
+def update_employee_status(emp_id):
+    if not can_manage_employment_status():
+        return jsonify({
+            "status": "error",
+            "message": "직원 상태는 총무과 직원과 총관리자만 변경할 수 있습니다."
+        }), 403
 
     emp = User.query.get_or_404(emp_id)
 
-    # ✅ 서명 파일 삭제
-    if emp.signature_image:
-        sig_dir = current_app.config["SIGNATURES_FOLDER"]
-        fname = emp.signature_image.split("/")[-1]
-        fpath = os.path.join(sig_dir, fname)
-        if os.path.exists(fpath):
-            os.remove(fpath)
+    # master 계정 자체는 상태 변경 금지
+    if emp.is_superadmin or emp.username == "master":
+        return jsonify({
+            "status": "error",
+            "message": "총관리자 계정의 상태는 변경할 수 없습니다."
+        }), 400
 
-    db.session.delete(emp)
+    data = request.get_json(silent=True) or {}
+    new_status = (data.get("employment_status") or "").strip()
+
+    if new_status not in EMPLOYMENT_STATUSES:
+        return jsonify({
+            "status": "error",
+            "message": "올바르지 않은 직원 상태입니다."
+        }), 400
+
+    old_status = emp.employment_status or "재직중"
+    today = date.today()
+
+    emp.employment_status = new_status
+    emp.status_changed_at = today
+
+    if new_status == "퇴사":
+        emp.resign_date = today
+
+        # 퇴사 시 부서 관리자 권한 자동 해제
+        emp.is_admin = False
+    else:
+        # 퇴사에서 다른 상태로 복원하면 퇴사일 제거
+        emp.resign_date = None
+
     db.session.commit()
 
-    return jsonify({"status": "success", "message": "직원이 삭제되었습니다."})
+    return jsonify({
+        "status": "success",
+        "message": (
+            f"{emp.name or emp.username} 직원의 상태가 "
+            f"'{old_status}'에서 '{new_status}'(으)로 변경되었습니다."
+        ),
+        "employee_id": emp.id,
+        "employment_status": emp.employment_status,
+        "status_changed_at": (
+            emp.status_changed_at.isoformat()
+            if emp.status_changed_at else None
+        ),
+        "resign_date": (
+            emp.resign_date.isoformat()
+            if emp.resign_date else None
+        ),
+    })
 
 
 # =====================================
