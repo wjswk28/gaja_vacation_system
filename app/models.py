@@ -6,6 +6,15 @@ from sqlalchemy.orm import validates
 import os
 import uuid
 
+EMPLOYMENT_STATUSES = (
+    "재직중",
+    "육아휴직",
+    "출산휴가",
+    "장기병가",
+    "무급휴가",
+    "퇴사",
+)
+
 # =====================
 # DB 모델
 # =====================
@@ -40,11 +49,21 @@ class User(UserMixin, db.Model):
     alt_leave = db.Column(db.Float, default=0)    # 부여된 대체연차 일수
     signature_image = db.Column(db.String(255), nullable=True)   #서명 파일
 
-        # ✅ NEW: 재직 상태 / 휴가계 대상자 / 퇴사일 (휴가계 전원 기준용)
-    # - employment_status: '재직' | '휴직' | '퇴사'
-    employment_status = db.Column(db.String(10), default="재직", nullable=False)
-    status_changed_at = db.Column(db.Date, nullable=True)  # 상태 변경일(선택)
-    resign_date = db.Column(db.Date, nullable=True)        # 퇴사일(선택)
+    # ✅ 직원 상태
+    # 허용값:
+    # 재직중 | 육아휴직 | 출산휴가 | 장기병가 | 무급휴가 | 퇴사
+    employment_status = db.Column(
+        db.String(20),
+        default="재직중",
+        nullable=False,
+        index=True,
+    )
+
+    # 마지막 상태 변경일
+    status_changed_at = db.Column(db.Date, nullable=True)
+
+    # 퇴사 상태일 때만 사용
+    resign_date = db.Column(db.Date, nullable=True)
 
     # ✅ NEW: 휴가계 대상자 여부(기본 True)
     is_vacation_form_target = db.Column(db.Boolean, default=True, nullable=False)
