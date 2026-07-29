@@ -822,6 +822,63 @@ def edit_employee(emp_id):
         emp.address    = request.form.get("address", "").strip()
         emp.phone      = request.form.get("phone", "").strip()
 
+        # ✅ 직원 상태 기간은 총무과 직원 또는 master만 수정
+        if can_manage_employment_status():
+            status_start_raw = request.form.get(
+                "status_start_date", ""
+            ).strip()
+
+            status_end_raw = request.form.get(
+                "status_end_date", ""
+            ).strip()
+
+            try:
+                new_status_start = (
+                    datetime.strptime(
+                        status_start_raw,
+                        "%Y-%m-%d"
+                    ).date()
+                    if status_start_raw else None
+                )
+
+                new_status_end = (
+                    datetime.strptime(
+                        status_end_raw,
+                        "%Y-%m-%d"
+                    ).date()
+                    if status_end_raw else None
+                )
+
+            except ValueError:
+                flash(
+                    "직원 상태 기간의 날짜 형식이 올바르지 않습니다.",
+                    "error"
+                )
+                return redirect(
+                    url_for(
+                        "employee.edit_employee",
+                        emp_id=emp.id
+                    )
+                )
+
+            if (
+                new_status_start
+                and new_status_end
+                and new_status_end < new_status_start
+            ):
+                flash(
+                    "상태 종료일은 시작일보다 빠를 수 없습니다.",
+                    "error"
+                )
+                return redirect(
+                    url_for(
+                        "employee.edit_employee",
+                        emp_id=emp.id
+                    )
+                )
+
+            emp.status_start_date = new_status_start
+            emp.status_end_date = new_status_end                     
 
         # 비밀번호 수정 필드가 있으면 반영 (없으면 그냥 무시돼도 상관 없음)
         password = request.form.get("password")
@@ -849,6 +906,7 @@ def edit_employee(emp_id):
         dept_list=dept_list,
         pw_reset_msg=pw_reset_msg,
         pw_reset_cat=pw_reset_cat,
+        can_manage_status=can_manage_employment_status(),
     )
 
 
@@ -993,12 +1051,25 @@ def update_employee_status(emp_id):
 
     if new_status == "퇴사":
         emp.resign_date = today
-
-        # 퇴사 시 부서 관리자 권한 자동 해제
+        emp.status_start_date = today
+        emp.status_end_date = None
         emp.is_admin = False
-    else:
-        # 퇴사에서 다른 상태로 복원하면 퇴사일 제거
+
+    elif new_status == "재직중":
         emp.resign_date = None
+        emp.status_start_date = None
+        emp.status_end_date = None
+
+    else:
+        # 육아휴직·출산휴가·장기병가·무급휴가
+        emp.resign_date = None
+
+        # 상태를 처음 변경한 날을 기본 시작일로 기록
+        if old_status != new_status:
+            emp.status_start_date = today
+
+        # 종료일은 직원 수정 페이지에서 입력
+        emp.status_end_date = None
 
     db.session.commit()
 
@@ -1084,6 +1155,7 @@ def reset_employee_password(emp_id):
         dept_list=dept_list,
         pw_reset_msg=f"✅ {emp.name or emp.username} 임시 비밀번호: {temp_pw}  (지금 복사해두세요)",
         pw_reset_cat="success",
+        can_manage_status=can_manage_employment_status(),
     )
 
 
