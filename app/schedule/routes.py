@@ -48,6 +48,10 @@ def export_schedule(dept):
     month = request.args.get("month", type=int, default=datetime.now().month)
     last_day = calendar.monthrange(year, month)[1]
 
+    # ✅ 출력하려는 근무표 월의 시작일과 종료일
+    first_date = date(year, month, 1)
+    last_date = date(year, month, last_day)
+
     # ====== 폼 파일 로드 ======
     FORM_DIR = current_app.config["FORMS_FOLDER"]
     TEMPLATE_FILE = "gaja_schedule.xlsx"
@@ -75,15 +79,93 @@ def export_schedule(dept):
             ws.cell(row=7, column=col).fill = PatternFill(
                 start_color="FFB0B0", end_color="FFB0B0", fill_type="solid"
             )
+
     # ====== 직원 목록 ======
-    employees = (
+    # 같은 부서의 직원을 먼저 모두 조회한 다음,
+    # 출력 대상 월과 직원 상태 기간을 비교하여 포함 여부 결정
+    all_department_employees = (
         User.query
         .filter(User.department == dept)
-        .filter(User.employment_status == "재직중")
         .order_by(User.join_date.asc())
         .all()
     )
-    names = [e.name.strip() for e in employees]
+
+    LEAVE_STATUSES = {
+        "육아휴직",
+        "출산휴가",
+        "장기병가",
+        "무급휴가",
+    }
+
+    employees = []
+
+    for emp in all_department_employees:
+        status = (
+            getattr(emp, "employment_status", None)
+            or "재직중"
+        ).strip()
+
+        status_start = getattr(
+            emp,
+            "status_start_date",
+            None
+        )
+
+        status_end = getattr(
+            emp,
+            "status_end_date",
+            None
+        )
+
+        resign_date = getattr(
+            emp,
+            "resign_date",
+            None
+        )
+
+        include_employee = True
+
+        # ----------------------------------
+        # 1) 퇴사자
+        # 퇴사일 이전 월 또는 퇴사한 해당 월에는 표시
+        # 퇴사일보다 뒤의 월에서는 제외
+        # ----------------------------------
+        if status == "퇴사":
+            if not resign_date:
+                include_employee = False
+            elif resign_date < first_date:
+                include_employee = False
+
+        # ----------------------------------
+        # 2) 육아휴직·출산휴가·장기병가·무급휴가
+        # 해당 월 전체가 상태 기간에 포함되면 행 자체 제외
+        # 해당 월 일부만 겹치면 행 유지
+        # ----------------------------------
+        elif status in LEAVE_STATUSES:
+
+            # 날짜가 전혀 입력되지 않은 휴직자는 현재 근무 대상에서 제외
+            if not status_start:
+                include_employee = False
+
+            else:
+                # 종료일이 없으면 계속 휴직 중인 것으로 판단
+                effective_end = status_end or date.max
+
+                covers_entire_month = (
+                    status_start <= first_date
+                    and effective_end >= last_date
+                )
+
+                if covers_entire_month:
+                    include_employee = False
+
+        if include_employee:
+            employees.append(emp)
+
+    names = [
+        (e.name or e.first_name or e.username or "").strip()
+        for e in employees
+    ]
     
     # ✅ 추가: user_id -> 근무표 행 index
     id_to_idx = {u.id: i for i, u in enumerate(employees)}
@@ -159,9 +241,6 @@ def export_schedule(dept):
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
     # ====== 승인된 일정 불러오기 ======
-    first_date = date(year, month, 1)
-    last_date = date(year, month, last_day)
-
     events = (
         Vacation.query.filter_by(department=dept)
         .filter(Vacation.approved == True)
@@ -233,6 +312,77 @@ def export_schedule(dept):
         # 테두리 보정
         medium = Side(style="medium", color="000000")
         cell.border = Border(left=thin, right=thin, top=medium, bottom=medium)
+
+    # =====================================================
+    # ✅ 부분월 휴직·휴가 상태 표시
+    #
+    # 한 달 전체가 상태 기간이면 위 직원 목록 단계에서 행 제외
+    # 한 달 중 일부만 겹치면 해당 날짜 셀에 상태명 표시
+    #
+    # 이 코드를 승인 일정 처리 뒤에 두어
+    # 휴직 기간에는 상태명이 최종적으로 표시되도록 함
+    # =====================================================
+    LEAVE_STATUS_LABELS = {
+        "육아휴직": "육아휴직",
+        "출산휴가": "출산휴가",
+        "장기병가": "장기병가",
+        "무급휴가": "무급휴가",
+    }
+
+    for i, emp in enumerate(employees):
+        status = (
+            getattr(emp, "employment_status", None)
+            or "재직중"
+        ).strip()
+
+        if status not in LEAVE_STATUS_LABELS:
+            continue
+
+        status_start = getattr(
+            emp,
+            "status_start_date",
+            None
+        )
+
+        status_end = getattr(
+            emp,
+            "status_end_date",
+            None
+        )
+
+        # 시작일이 없으면 날짜 셀 표시 불가
+        if not status_start:
+            continue
+
+        # 종료일이 없으면 현재 근무표 월의 마지막 날까지 표시
+        effective_end = status_end or last_date
+
+        # 출력 월 안에서 실제로 겹치는 기간 계산
+        display_start = max(status_start, first_date)
+        display_end = min(effective_end, last_date)
+
+        # 해당 월과 겹치지 않으면 넘어감
+        if display_start > display_end:
+            continue
+
+        row = 8 + i
+        label = LEAVE_STATUS_LABELS[status]
+
+        for day in range(1, last_day + 1):
+            current_date = date(year, month, day)
+
+            if not (display_start <= current_date <= display_end):
+                continue
+
+            col = 3 + day - 1
+            cell = ws.cell(row=row, column=col)
+
+            cell.value = label
+            cell.alignment = Alignment(
+                horizontal="center",
+                vertical="center",
+                shrinkToFit=True,
+            )
 
     # ====== 합계 (AI, AJ) ======
     weights = {"연차": 1.0, "반차": 0.5, "반반차": 0.25, "토연차": 0.75}
