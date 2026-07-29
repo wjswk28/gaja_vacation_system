@@ -112,7 +112,10 @@ def calendar_page():
 
 
     # ✅ 선택된 부서의 직원 목록 (모달에서 근무자 버튼에 사용)
-    users = User.query.filter_by(department=current_dept).all()
+    users = User.query.filter_by(
+        department=current_dept,
+        employment_status="재직중",
+    ).all()
     user_names = [u.first_name or u.name or u.username for u in users] or []
     user_dept = (user.department or "").strip() or "관리자"
 
@@ -174,7 +177,7 @@ def meal_check_page():
     # -----------------------------
     users = (
         User.query
-        .filter(User.employment_status == "재직")
+        .filter(User.employment_status == "재직중")
         .filter(User.username != "master")
         .all()
     )
@@ -765,7 +768,10 @@ def users_by_dept():
     if not dept:
         return jsonify({"users": []})
 
-    users = User.query.filter_by(department=dept).all()
+    users = User.query.filter_by(
+        department=dept,
+        employment_status="재직중",
+    ).all()
 
     def display_name(u: User) -> str:
         return (u.first_name or u.name or u.username or "").strip()
