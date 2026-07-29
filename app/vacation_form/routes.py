@@ -82,7 +82,7 @@ def _dept_targets(dept: str, y: int, m: int):
     return (
         User.query
         .filter_by(department=dept)
-        .filter(User.employment_status == "재직")
+        .filter(User.employment_status == "재직중")
         .filter(User.is_vacation_form_target == True)
         .all()
     )
@@ -147,15 +147,19 @@ def index():
 
     # ✅ 병원장 후보: 의료진만
     director_candidates = (
-        User.query.filter_by(department="의료진")
+        User.query
+        .filter_by(department="의료진")
+        .filter(User.employment_status == "재직중")
         .order_by(User.name.asc())
         .all()
     )
 
     # ✅ 부장 후보: 중간관리자만(총관리자 제외)
     chief_candidates = (
-        User.query.filter(User.is_admin == True)
+        User.query
+        .filter(User.is_admin == True)
         .filter(User.is_superadmin == False)
+        .filter(User.employment_status == "재직중")
         .order_by(User.department.asc(), User.name.asc())
         .all()
     )
