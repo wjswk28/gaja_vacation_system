@@ -49,17 +49,28 @@ def can_manage_employment_status():
 
     가능:
     1. master / 총관리자
-    2. 총무과 소속 직원
+    2. 총무과 소속 관리자
 
-    부서 관리자 권한만으로는 상태 변경 불가
+    불가:
+    - 총무과 일반 직원
+    - 다른 부서 관리자
+    - 일반 직원
     """
+    # master / 총관리자
     if bool(getattr(current_user, "is_superadmin", False)):
         return True
 
-    if (getattr(current_user, "department", "") or "").strip() == "총무과":
-        return True
+    department = (
+        getattr(current_user, "department", "")
+        or ""
+    ).strip()
 
-    return False
+    is_admin = bool(
+        getattr(current_user, "is_admin", False)
+    )
+
+    # 총무과이면서 관리자일 때만 허용
+    return department == "총무과" and is_admin
 
 # =====================================
 # 직원 목록
@@ -822,14 +833,35 @@ def edit_employee(emp_id):
         emp.address    = request.form.get("address", "").strip()
         emp.phone      = request.form.get("phone", "").strip()
 
-        # ✅ 직원 상태 기간은 총무과 직원 또는 master만 수정
+        # =====================================
+        # 직원 상태 및 상태 기간 변경
+        # master 또는 총무과 직원만 가능
+        # =====================================
         if can_manage_employment_status():
-            status_start_raw = request.form.get(
-                "status_start_date", ""
+
+            new_status = (
+                request.form.get("employment_status")
+                or emp.employment_status
+                or "재직중"
             ).strip()
 
-            status_end_raw = request.form.get(
-                "status_end_date", ""
+            if new_status not in EMPLOYMENT_STATUSES:
+                flash("올바르지 않은 직원 상태입니다.", "error")
+                return redirect(
+                    url_for(
+                        "employee.edit_employee",
+                        emp_id=emp.id
+                    )
+                )
+
+            status_start_raw = (
+                request.form.get("status_start_date")
+                or ""
+            ).strip()
+
+            status_end_raw = (
+                request.form.get("status_end_date")
+                or ""
             ).strip()
 
             try:
@@ -851,7 +883,7 @@ def edit_employee(emp_id):
 
             except ValueError:
                 flash(
-                    "직원 상태 기간의 날짜 형식이 올바르지 않습니다.",
+                    "상태 시작일 또는 종료일의 날짜 형식이 올바르지 않습니다.",
                     "error"
                 )
                 return redirect(
@@ -861,24 +893,83 @@ def edit_employee(emp_id):
                     )
                 )
 
-            if (
-                new_status_start
-                and new_status_end
-                and new_status_end < new_status_start
-            ):
-                flash(
-                    "상태 종료일은 시작일보다 빠를 수 없습니다.",
-                    "error"
-                )
-                return redirect(
-                    url_for(
-                        "employee.edit_employee",
-                        emp_id=emp.id
-                    )
-                )
+            old_status = (
+                emp.employment_status
+                or "재직중"
+            ).strip()
 
-            emp.status_start_date = new_status_start
-            emp.status_end_date = new_status_end                     
+            # ---------------------------------
+            # 재직중
+            # 날짜와 퇴사일 모두 비움
+            # ---------------------------------
+            if new_status == "재직중":
+                emp.employment_status = "재직중"
+                emp.status_start_date = None
+                emp.status_end_date = None
+                emp.resign_date = None
+
+            # ---------------------------------
+            # 퇴사
+            # 시작일 필수, 종료일은 사용하지 않음
+            # ---------------------------------
+            elif new_status == "퇴사":
+                if not new_status_start:
+                    flash(
+                        "퇴사 상태는 퇴사일을 입력해야 합니다.",
+                        "error"
+                    )
+                    return redirect(
+                        url_for(
+                            "employee.edit_employee",
+                            emp_id=emp.id
+                        )
+                    )
+
+                emp.employment_status = "퇴사"
+                emp.status_start_date = new_status_start
+                emp.status_end_date = None
+                emp.resign_date = new_status_start
+
+                # 퇴사 시 관리자 권한 자동 해제
+                emp.is_admin = False
+
+            # ---------------------------------
+            # 육아휴직·출산휴가·장기병가·무급휴가
+            # 시작일과 종료일 모두 필수
+            # ---------------------------------
+            else:
+                if not new_status_start or not new_status_end:
+                    flash(
+                        f"{new_status} 상태는 시작일과 종료일을 모두 입력해야 합니다.",
+                        "error"
+                    )
+                    return redirect(
+                        url_for(
+                            "employee.edit_employee",
+                            emp_id=emp.id
+                        )
+                    )
+
+                if new_status_end < new_status_start:
+                    flash(
+                        "상태 종료일은 시작일보다 빠를 수 없습니다.",
+                        "error"
+                    )
+                    return redirect(
+                        url_for(
+                            "employee.edit_employee",
+                            emp_id=emp.id
+                        )
+                    )
+
+                emp.employment_status = new_status
+                emp.status_start_date = new_status_start
+                emp.status_end_date = new_status_end
+                emp.resign_date = None
+
+            # 실제 상태가 바뀐 경우에만 상태 변경일 갱신
+            if old_status != new_status:
+                emp.status_changed_at = date.today()             
 
         # 비밀번호 수정 필드가 있으면 반영 (없으면 그냥 무시돼도 상관 없음)
         password = request.form.get("password")
@@ -1022,7 +1113,7 @@ def update_employee_status(emp_id):
     if not can_manage_employment_status():
         return jsonify({
             "status": "error",
-            "message": "직원 상태는 총무과 직원과 총관리자만 변경할 수 있습니다."
+            "message": "직원 상태는 총관리자와 총무과 관리자만 변경할 수 있습니다."
         }), 403
 
     emp = User.query.get_or_404(emp_id)
