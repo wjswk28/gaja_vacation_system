@@ -84,76 +84,139 @@
              class="w-full border border-sky-200 bg-gradient-to-r from-sky-50 to-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-400 focus:border-sky-400 transition" required>
     </div>
 
-    <!-- ✅ 현재 직원 상태 -->
+    <!-- =====================================
+        직원 상태
+    ===================================== -->
     <div>
       <label class="block text-sm font-medium text-slate-600 mb-1">
         직원 상태
       </label>
 
-      <input type="text"
-            value="{{ employee.employment_status or '재직중' }}"
-            disabled
-            class="w-full border border-slate-200 rounded-lg px-3 py-2
-                    text-sm bg-slate-50 text-slate-600 shadow-inner">
+      {% if can_manage_status %}
+        <div class="relative">
+          <select
+            id="employmentStatus"
+            name="employment_status"
+            class="appearance-none w-full border border-sky-200
+                  bg-gradient-to-r from-sky-50 to-white
+                  rounded-lg px-3 py-2 pr-8 text-sm
+                  focus:ring-2 focus:ring-sky-400
+                  focus:border-sky-400 transition">
 
-      <p class="text-xs text-slate-400 mt-1">
-        상태 변경은 직원관리 화면의 드롭다운에서 진행합니다.
-      </p>
+            {% for status_name in [
+              '재직중',
+              '육아휴직',
+              '출산휴가',
+              '장기병가',
+              '무급휴가',
+              '퇴사'
+            ] %}
+              <option
+                value="{{ status_name }}"
+                {% if (employee.employment_status or '재직중') == status_name %}
+                  selected
+                {% endif %}>
+                {{ status_name }}
+              </option>
+            {% endfor %}
+          </select>
+
+          <svg xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              class="absolute right-2.5 top-1/2
+                      -translate-y-1/2 w-4 h-4
+                      text-sky-500 pointer-events-none">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+        </div>
+
+      {% else %}
+        <input
+          type="text"
+          value="{{ employee.employment_status or '재직중' }}"
+          disabled
+          class="w-full border border-slate-200 rounded-lg
+                px-3 py-2 text-sm bg-slate-50
+                text-slate-600 shadow-inner">
+      {% endif %}
     </div>
 
-    <!-- ✅ 퇴사일 -->
-    <div>
-      <label class="block text-sm font-medium text-slate-600 mb-1">
-        퇴사일
+    <!-- =====================================
+        상태 시작일
+    ===================================== -->
+    <div id="statusStartWrap">
+      <label
+        id="statusStartLabel"
+        class="block text-sm font-medium text-slate-600 mb-1">
+        상태 시작일
       </label>
 
-      <input type="text"
-            value="{{ employee.resign_date.strftime('%Y-%m-%d') if employee.resign_date else '-' }}"
-            disabled
-            class="w-full border border-slate-200 rounded-lg px-3 py-2
-                    text-sm bg-slate-50 text-slate-600 shadow-inner">
+      {% if can_manage_status %}
+        <input
+          type="date"
+          id="statusStartDate"
+          name="status_start_date"
+          value="{{ employee.status_start_date.strftime('%Y-%m-%d') if employee.status_start_date else '' }}"
+          class="w-full border border-sky-200
+                bg-gradient-to-r from-sky-50 to-white
+                rounded-lg px-3 py-2 text-sm
+                focus:ring-2 focus:ring-sky-400
+                focus:border-sky-400 transition">
+      {% else %}
+        <input
+          type="text"
+          value="{{ employee.status_start_date.strftime('%Y-%m-%d') if employee.status_start_date else '-' }}"
+          disabled
+          class="w-full border border-slate-200 rounded-lg
+                px-3 py-2 text-sm bg-slate-50
+                text-slate-600 shadow-inner">
+      {% endif %}
     </div>
 
-    {% if can_manage_status %}
-      <!-- ✅ 상태 시작일 -->
-      <div>
-        <label class="block text-sm font-medium text-slate-600 mb-1">
-          상태 시작일
-        </label>
+    <!-- =====================================
+        상태 종료일
+    ===================================== -->
+    <div id="statusEndWrap">
+      <label class="block text-sm font-medium text-slate-600 mb-1">
+        상태 종료일
+      </label>
 
-        <input type="date"
-              name="status_start_date"
-              value="{{ employee.status_start_date.strftime('%Y-%m-%d') if employee.status_start_date else '' }}"
-              class="w-full border border-sky-200
-                      bg-gradient-to-r from-sky-50 to-white
-                      rounded-lg px-3 py-2 text-sm
-                      focus:ring-2 focus:ring-sky-400
-                      focus:border-sky-400 transition">
-      </div>
+      {% if can_manage_status %}
+        <input
+          type="date"
+          id="statusEndDate"
+          name="status_end_date"
+          value="{{ employee.status_end_date.strftime('%Y-%m-%d') if employee.status_end_date else '' }}"
+          class="w-full border border-sky-200
+                bg-gradient-to-r from-sky-50 to-white
+                rounded-lg px-3 py-2 text-sm
+                focus:ring-2 focus:ring-sky-400
+                focus:border-sky-400 transition">
+      {% else %}
+        <input
+          type="text"
+          value="{{ employee.status_end_date.strftime('%Y-%m-%d') if employee.status_end_date else '-' }}"
+          disabled
+          class="w-full border border-slate-200 rounded-lg
+                px-3 py-2 text-sm bg-slate-50
+                text-slate-600 shadow-inner">
+      {% endif %}
+    </div>
 
-      <!-- ✅ 상태 종료일 -->
-      <div>
-        <label class="block text-sm font-medium text-slate-600 mb-1">
-          상태 종료일
-        </label>
-
-        <input type="date"
-              name="status_end_date"
-              value="{{ employee.status_end_date.strftime('%Y-%m-%d') if employee.status_end_date else '' }}"
-              class="w-full border border-sky-200
-                      bg-gradient-to-r from-sky-50 to-white
-                      rounded-lg px-3 py-2 text-sm
-                      focus:ring-2 focus:ring-sky-400
-                      focus:border-sky-400 transition">
-      </div>
-
-      <div class="md:col-span-2">
-        <p class="text-xs text-slate-500">
-          육아휴직·출산휴가·장기병가·무급휴가 기간을 입력합니다.
-          퇴사는 종료일 없이 시작일만 사용할 수 있습니다.
-        </p>
-      </div>
-    {% endif %}
+    <div
+      id="statusHelpText"
+      class="md:col-span-2 rounded-lg
+            border border-sky-100 bg-sky-50
+            px-3 py-2">
+      <p class="text-xs text-slate-600">
+        육아휴직·출산휴가·장기병가·무급휴가는 시작일과 종료일을
+        입력합니다. 퇴사는 시작일만 입력합니다. 종료일이 지나도
+        상태는 자동으로 재직중으로 바뀌지 않습니다.
+      </p>
+    </div>
 
     <!-- ✅ 주소 -->
     <div class="md:col-span-2">
@@ -195,4 +258,110 @@
   {% endif %}
 
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const statusSelect =
+    document.getElementById("employmentStatus");
+
+  const startWrap =
+    document.getElementById("statusStartWrap");
+
+  const endWrap =
+    document.getElementById("statusEndWrap");
+
+  const helpText =
+    document.getElementById("statusHelpText");
+
+  const startLabel =
+    document.getElementById("statusStartLabel");
+
+  const startInput =
+    document.getElementById("statusStartDate");
+
+  const endInput =
+    document.getElementById("statusEndDate");
+
+  // 상태 수정 권한이 없으면 select가 없으므로 중단
+  if (!statusSelect || !startWrap || !endWrap) {
+    return;
+  }
+
+  const leaveStatuses = [
+    "육아휴직",
+    "출산휴가",
+    "장기병가",
+    "무급휴가"
+  ];
+
+  function updateStatusFields() {
+    const status = statusSelect.value;
+
+    if (status === "재직중") {
+      startWrap.style.display = "none";
+      endWrap.style.display = "none";
+
+      if (helpText) {
+        helpText.style.display = "none";
+      }
+
+      if (startInput) {
+        startInput.required = false;
+      }
+
+      if (endInput) {
+        endInput.required = false;
+      }
+
+    } else if (status === "퇴사") {
+      startWrap.style.display = "";
+      endWrap.style.display = "none";
+
+      if (helpText) {
+        helpText.style.display = "";
+      }
+
+      if (startLabel) {
+        startLabel.textContent = "퇴사일";
+      }
+
+      if (startInput) {
+        startInput.required = true;
+      }
+
+      if (endInput) {
+        endInput.required = false;
+      }
+
+    } else if (leaveStatuses.includes(status)) {
+      startWrap.style.display = "";
+      endWrap.style.display = "";
+
+      if (helpText) {
+        helpText.style.display = "";
+      }
+
+      if (startLabel) {
+        startLabel.textContent = "상태 시작일";
+      }
+
+      if (startInput) {
+        startInput.required = true;
+      }
+
+      if (endInput) {
+        endInput.required = true;
+      }
+    }
+  }
+
+  statusSelect.addEventListener(
+    "change",
+    updateStatusFields
+  );
+
+  updateStatusFields();
+});
+</script>
+
 {% endblock %}
