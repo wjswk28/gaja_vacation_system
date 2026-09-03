@@ -79,15 +79,13 @@ class User(UserMixin, db.Model):
     @property
     def total_alt_leave(self):
         from app.models import AltLeaveLog
-        # 사용자 이름 키 (부서요약문과 동일기준)
-        name_key = self.first_name or self.name or self.username
 
         logs = AltLeaveLog.query.all()
 
-        # department_summary 문자열에 이름이 포함되면 해당 로그는 이 사용자에게 부여된 것
         return sum(
-            log.add_days for log in logs
-            if name_key and name_key in (log.department_summary or "")
+            float(log.add_days or 0)
+            for log in logs
+            if alt_leave_log_has_user(log, self)
         )
 
 def now_kst():
@@ -119,6 +117,52 @@ class NewHireChecklist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     department = db.Column(db.String(50))       # 관리자의 부서 기준
     items = db.Column(db.Text)                  # 체크 항목 JSON
+
+
+def alt_leave_log_has_user(log, user):
+    """
+    대체연차 일괄부여 로그의 department_summary에서
+    해당 직원이 실제 대상자인지 정확히 확인한다.
+
+    - first_name 한 글자로 찾지 않음
+    - 부서 일치 확인
+    - 전체 이름을 직원 단위로 정확히 비교
+    """
+    summary = (log.department_summary or "").strip()
+
+    department = (user.department or "기타").strip()
+
+    full_name = (
+        user.name
+        or f"{(user.last_name or '').strip()}{(user.first_name or '').strip()}"
+        or user.username
+        or ""
+    ).strip()
+
+    if not summary or not department or not full_name:
+        return False
+
+    marker = f"{department}("
+    start = summary.find(marker)
+
+    if start == -1:
+        return False
+
+    names_start = start + len(marker)
+    names_end = summary.find(")", names_start)
+
+    if names_end == -1:
+        return False
+
+    names_text = summary[names_start:names_end]
+
+    names = [
+        name.strip()
+        for name in names_text.split(",")
+        if name.strip()
+    ]
+
+    return full_name in names
 
 
 class AltLeaveLog(db.Model):
