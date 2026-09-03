@@ -255,21 +255,19 @@ def employee_list():
         # 3) 총 발생 대체연차 계산
         # -------------------------
         logs = AltLeaveLog.query.all()
-    
-        name_key = (emp.first_name or emp.name or emp.username or "").strip()
-        emp_logs = []
-    
-        for log in logs:
-            summary = (log.department_summary or "")
-            if (
-                f"({name_key})" in summary or
-                f"{name_key}," in summary or
-                f"{name_key})" in summary or
-                summary.endswith(name_key)
-            ):
-                emp_logs.append(log)
-    
-        alt_total = sum(l.add_days for l in emp_logs)
+
+        from app.models import alt_leave_log_has_user
+
+        emp_logs = [
+            log
+            for log in logs
+            if alt_leave_log_has_user(log, emp)
+        ]
+
+        alt_total = sum(
+            float(log.add_days or 0)
+            for log in emp_logs
+        )
 
         alt_log_rows = []
 
@@ -577,27 +575,24 @@ def employee_vacation_history(emp_id):
     try:
         from app.models import AltLeaveLog
 
-        logs = AltLeaveLog.query.order_by(AltLeaveLog.apply_date.desc()).all()
-        name_key = (
-            target_user.first_name
-            or target_user.name
-            or target_user.username
-            or ""
-        ).strip()
+        logs = (
+            AltLeaveLog.query
+            .order_by(AltLeaveLog.apply_date.desc())
+            .all()
+        )
 
-        emp_logs = []
+        from app.models import alt_leave_log_has_user
 
-        for log in logs:
-            summary_text = log.department_summary or ""
-            if (
-                f"({name_key})" in summary_text or
-                f"{name_key}," in summary_text or
-                f"{name_key})" in summary_text or
-                summary_text.endswith(name_key)
-            ):
-                emp_logs.append(log)
+        emp_logs = [
+            log
+            for log in logs
+            if alt_leave_log_has_user(log, target_user)
+        ]
 
-        alt_total = sum(l.add_days for l in emp_logs)
+        alt_total = sum(
+            float(log.add_days or 0)
+            for log in emp_logs
+        )
 
         # ✅ 모달에서 보여줄 대체연차 부여 이력
         alt_log_rows = []
