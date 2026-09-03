@@ -11,6 +11,14 @@ from collections import defaultdict
 # 실제 DB INSERT는 하지 않고 매칭 결과만 확인합니다.
 DRY_RUN = True
 
+# =========================================================
+# 과거에는 존재했지만 현재 User 테이블에서 삭제된 직원
+# - 기존 AltLeaveLog 문자열 이력은 그대로 보존
+# - AltLeaveRecipient 연결만 생성하지 않음
+# =========================================================
+LEGACY_DELETED_RECIPIENTS = {
+    (7, "외래", "김혜원"),
+}
 
 # =========================================================
 # DB 경로
@@ -319,6 +327,21 @@ def main():
                 # 아무도 못 찾음
                 # -----------------------------------------
                 elif len(matches) == 0:
+
+                    legacy_key = (
+                        log_id,
+                        department,
+                        employee_name,
+                    )
+
+                    # ✅ 과거 직원 삭제로 현재 User 테이블에 없는 직원
+                    if legacy_key in LEGACY_DELETED_RECIPIENTS:
+                        print(
+                            f"  ⚪ 과거 삭제 직원 - 연결 생략: "
+                            f"{department} / {employee_name}"
+                        )
+                        continue
+
                     unmatched.append(
                         (
                             log_id,
