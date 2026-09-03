@@ -175,6 +175,64 @@ class AltLeaveLog(db.Model):
     granted_by = db.Column(db.String(50), nullable=False)          # 부여자 이름
     department_summary = db.Column(db.String(500), nullable=True)  # 부서 + 부서원 요약 문자열
 
+class AltLeaveRecipient(db.Model):
+    """
+    대체연차 지급 대상 직원 저장
+
+    AltLeaveLog 1건에 여러 명의 직원이 연결될 수 있다.
+    이름 문자열이 아니라 user_id로 실제 지급 대상자를 관리한다.
+    """
+    __tablename__ = "alt_leave_recipients"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # 어떤 대체연차 지급건인지
+    log_id = db.Column(
+        db.Integer,
+        db.ForeignKey("alt_leave_log.id"),
+        nullable=False,
+        index=True,
+    )
+
+    # 실제 지급받은 직원
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False,
+        index=True,
+    )
+
+    # 해당 직원에게 실제 지급된 일수
+    add_days = db.Column(
+        db.Float,
+        nullable=False,
+        default=0.0,
+    )
+
+    # 관계
+    user = db.relationship(
+        "User",
+        foreign_keys=[user_id],
+    )
+
+    log = db.relationship(
+        "AltLeaveLog",
+        foreign_keys=[log_id],
+        backref=db.backref(
+            "recipients",
+            lazy=True,
+            cascade="all, delete-orphan",
+        ),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "log_id",
+            "user_id",
+            name="uq_alt_leave_recipient_log_user",
+        ),
+    )
+
 class MonthLock(db.Model):
     __tablename__ = "month_locks"
 
