@@ -7,9 +7,19 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from datetime import date, datetime, timedelta
+from sqlalchemy import or_, and_
+
 from app.myinfo import myinfo_bp
-from app.models import User, Vacation, AltLeaveLog
+from app.models import User, Vacation, AltLeaveRecipient
 from app.leave_utils import calculate_annual_leave
+
+# ====================================================
+# 연차 / 대체연차 시스템 제외 부서
+# ====================================================
+LEAVE_EXCLUDED_DEPARTMENTS = {
+    "병동",
+    "의료진",
+}
 
 # ====================================================
 # 내 정보 페이지
@@ -43,14 +53,17 @@ def myinfo():
         return redirect(url_for("myinfo.myinfo"))
 
     # ------------------------------------------------
-    # 2) 연차 계산(직원관리와 동일)
+    # 2) 연차 / 대체연차 계산
+    #    ✅ 직원관리 페이지와 동일한 기준
     # ------------------------------------------------
     today = date.today()
 
-    # 총 발생 연차
-    total_leave = calculate_annual_leave(user.join_date)
+    leave_excluded = (
+        (user.department or "").strip()
+        in LEAVE_EXCLUDED_DEPARTMENTS
+    )
 
-    # 승인된 휴가만 적용(과거+미래)
+    # 휴가 종류별 차감 일수
     weights = {
         "연차": 1.0,
         "반차(전)": 0.5,
@@ -59,40 +72,191 @@ def myinfo():
         "토연차": 0.75,
     }
 
-    used_before = float(user.used_before_system or 0.0)
 
-    approved_events = Vacation.query.filter(
-        ((Vacation.user_id == user.id) | (Vacation.target_user_id == user.id)),
-        Vacation.approved.is_(True),
-        Vacation.type.in_(weights.keys())
-    ).all()
+    # ====================================================
+    # 병동 / 의료진
+    # - 직원 등록과 일반 정보만 사용
+    # - 연차 시스템에서는 제외
+    # ====================================================
+    if leave_excluded:
 
-    used_after = sum(weights.get(v.type, 0) for v in approved_events)
-    used_total = round(used_before + used_after, 2)
+        total_leave = 0.0
+        used_before = 0.0
 
-    # ------------------------------------------------
-    # 3) 대체연차 계산 (직원관리와 동일)
-    # ------------------------------------------------
-    name_key = (user.first_name or user.name or user.username or "").strip()
+        used_after = 0.0
+        used_total = 0.0
 
-    logs_all = AltLeaveLog.query.order_by(AltLeaveLog.grant_date.desc()).all()
+        alt_used_total = 0.0
+        annual_used_total = 0.0
 
-    my_alt_logs = [
-        log for log in logs_all
-        if (log.department_summary or "").find(name_key) != -1
-    ]
-
-    total_alt_leave = sum(log.add_days for log in my_alt_logs)
-    alt_total = float(total_alt_leave)
-
-    # 대체연차 → 연차 차감 로직
-    if used_total <= alt_total:
-        alt_left = round(alt_total - used_total, 2)
-        annual_left = float(total_leave)
-    else:
-        remain_use = used_total - alt_total
+        total_alt_leave = 0.0
         alt_left = 0.0
-        annual_left = round(float(total_leave) - remain_use, 2)
+        annual_left = 0.0
+
+        my_alt_logs = []
+
+
+    # ====================================================
+    # 일반 연차 시스템 대상 부서
+    # ====================================================
+    else:
+
+        # ---------------------------------------------
+        # 1) 총 발생 일반 연차
+        # ---------------------------------------------
+        total_leave = float(
+            calculate_annual_leave(user.join_date) or 0
+        )
+
+        # 시스템 도입 전 사용 연차
+        # → 대체연차인지 구분할 수 없으므로 일반 연차 사용으로 처리
+        used_before = float(
+            user.used_before_system or 0.0
+        )
+
+
+        # ---------------------------------------------
+        # 2) 승인된 휴가 조회
+        #
+        # target_user_id가 있으면 그것을 우선 기준으로 사용
+        # 예전 데이터는 target_user_id가 NULL일 때만 user_id 보완
+        # ---------------------------------------------
+        approved_events = (
+            Vacation.query
+            .filter(
+                Vacation.approved.is_(True),
+                Vacation.type.in_(weights.keys()),
+                or_(
+                    Vacation.target_user_id == user.id,
+                    and_(
+                        Vacation.target_user_id.is_(None),
+                        Vacation.user_id == user.id
+                    )
+                )
+            )
+            .all()
+        )
+
+
+        # ---------------------------------------------
+        # 3) 사용량 계산
+        # ---------------------------------------------
+        used_after = 0.0
+        alt_used_total = 0.0
+
+        for v in approved_events:
+
+            vac_type = (v.type or "").strip()
+            days = float(
+                weights.get(vac_type, 0.0)
+            )
+
+            used_after += days
+
+            # ✅ 대체연차로 실제 지정된 휴가만
+            if bool(getattr(v, "is_alt", False)):
+                alt_used_total += days
+
+
+        used_after = round(
+            used_after,
+            2
+        )
+
+        # 전체 사용량
+        used_total = round(
+            used_before + used_after,
+            2
+        )
+
+        # 대체연차 사용량
+        alt_used_total = round(
+            alt_used_total,
+            2
+        )
+
+        # 일반연차 사용량
+        #
+        # 시스템 도입 전 사용량은 모두 일반연차로 포함되고,
+        # is_alt=True인 것만 전체 사용량에서 제외
+        annual_used_total = round(
+            used_total - alt_used_total,
+            2
+        )
+
+
+        # ---------------------------------------------
+        # 4) 총 발생 대체연차
+        #
+        # ✅ 이름 검색 완전 제거
+        # ✅ AltLeaveRecipient.user_id 기준
+        # ---------------------------------------------
+        recipients = (
+            AltLeaveRecipient.query
+            .filter_by(user_id=user.id)
+            .all()
+        )
+
+        total_alt_leave = round(
+            sum(
+                float(r.add_days or 0)
+                for r in recipients
+            ),
+            2
+        )
+
+
+        # ---------------------------------------------
+        # 5) 대체연차 지급 이력
+        # ---------------------------------------------
+        my_alt_logs = []
+
+        for recipient in recipients:
+
+            log = recipient.log
+
+            if not log:
+                continue
+
+            my_alt_logs.append({
+                "grant_date": log.grant_date,
+                "apply_date": log.apply_date,
+                "reason": log.reason,
+                "add_days": float(
+                    recipient.add_days or 0
+                ),
+                "granted_by": log.granted_by,
+                "department_summary": log.department_summary,
+            })
+
+
+        # 최근 지급/적용일 순
+        my_alt_logs.sort(
+            key=lambda row: (
+                row["apply_date"] or date.min,
+                row["grant_date"] or datetime.min,
+            ),
+            reverse=True,
+        )
+
+
+        # ---------------------------------------------
+        # 6) 최종 잔여량
+        # ---------------------------------------------
+
+        # 대체연차
+        alt_left = round(
+            float(total_alt_leave)
+            - float(alt_used_total),
+            2
+        )
+
+        # 일반연차
+        annual_left = round(
+            float(total_leave)
+            - float(annual_used_total),
+            2
+        )
 
     # ------------------------------------------------
     # 4) 입사 D-day 계산
