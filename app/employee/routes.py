@@ -13,7 +13,13 @@ from flask import (
 from flask_login import login_required, current_user
 from datetime import datetime, date
 from app.employee import employee_bp
-from app.models import User, Vacation, EMPLOYMENT_STATUSES
+from app.models import (
+    User,
+    Vacation,
+    EMPLOYMENT_STATUSES,
+    AltLeaveLog,
+    AltLeaveRecipient,
+)
 from app import db
 from sqlalchemy import or_, and_
 import os
@@ -21,6 +27,15 @@ from werkzeug.utils import secure_filename
 import uuid
 import secrets
 import string
+
+# =====================================================
+# 연차/대체연차 시스템 제외 부서
+# =====================================================
+LEAVE_EXCLUDED_DEPARTMENTS = {
+    "병동",
+    "의료진",
+}
+
 
 # ✅ 한글(가나다) 정렬용 키
 def hangul_sort_key(text: str):
@@ -193,7 +208,6 @@ def employee_list():
     # =========================
     # 연차 / 대체연차 계산용 뷰 모델
     # =========================
-    from app.models import AltLeaveLog
     
     output = []
     for emp in employees_raw:
@@ -253,41 +267,74 @@ def employee_list():
     
         # -------------------------
         # 3) 총 발생 대체연차 계산
+        #    ✅ 이름 문자열 검색 금지
+        #    ✅ AltLeaveRecipient.user_id 기준
         # -------------------------
-        logs = AltLeaveLog.query.all()
+        if (emp.department or "").strip() in LEAVE_EXCLUDED_DEPARTMENTS:
+            alt_total = 0.0
+            alt_log_rows = []
 
-        from app.models import alt_leave_log_has_user
+        else:
+            recipients = (
+                AltLeaveRecipient.query
+                .filter_by(user_id=emp.id)
+                .all()
+            )
 
-        emp_logs = [
-            log
-            for log in logs
-            if alt_leave_log_has_user(log, emp)
-        ]
+            # ✅ 실제 이 직원에게 지급된 대체연차만 합산
+            alt_total = round(
+                sum(float(r.add_days or 0) for r in recipients),
+                2
+            )
 
-        alt_total = sum(
-            float(log.add_days or 0)
-            for log in emp_logs
-        )
+            alt_log_rows = []
 
-        alt_log_rows = []
+            for recipient in recipients:
+                log = recipient.log
 
-        for log in emp_logs:
-            alt_log_rows.append({
-                "grant_date": log.grant_date,
-                "apply_date": log.apply_date,
-                "reason": log.reason,
-                "add_days": log.add_days,
-                "granted_by": log.granted_by,
-                "department_summary": log.department_summary,
-            })
+                if not log:
+                    continue
+
+                alt_log_rows.append({
+                    "grant_date": log.grant_date,
+                    "apply_date": log.apply_date,
+                    "reason": log.reason,
+                    "add_days": recipient.add_days,
+                    "granted_by": log.granted_by,
+                    "department_summary": log.department_summary,
+                })
     
         # -------------------------
         # 4) 잔여 계산
-        #    ✅ 이제 대체연차 우선차감 아님
-        #    ✅ is_alt=True 인 휴가만 대체연차 사용으로 계산
         # -------------------------
-        alt_left = round(float(alt_total or 0) - alt_used_total, 2)
-        annual_left = round(float(total_leave or 0) - annual_used_total, 2)
+        leave_excluded = (
+            (emp.department or "").strip()
+            in LEAVE_EXCLUDED_DEPARTMENTS
+        )
+
+        if leave_excluded:
+            # ✅ 병동/의료진은 연차 시스템 미사용
+            total_leave = 0.0
+            used_total = 0.0
+            annual_used_total = 0.0
+
+            alt_total = 0.0
+            alt_used_total = 0.0
+
+            annual_left = 0.0
+            alt_left = 0.0
+
+        else:
+            # ✅ 일반 부서
+            alt_left = round(
+                float(alt_total or 0) - alt_used_total,
+                2
+            )
+
+            annual_left = round(
+                float(total_leave or 0) - annual_used_total,
+                2
+            )
     
         # -------------------------
         # 5) 출력 데이터 구성
@@ -571,49 +618,110 @@ def employee_vacation_history(emp_id):
     alt_used_total = round(alt_used_from_events, 2)
     annual_used_total = round(used_total - alt_used_total, 2)
 
-    # ✅ 대체연차 총 발생 계산 + 부여 이력
+    # =====================================================
+    # ✅ 대체연차 총 발생 + 부여 이력
+    # - AltLeaveRecipient.user_id로 정확하게 조회
+    # - 이름 문자열 검색 완전 제거
+    # =====================================================
     try:
-        from app.models import AltLeaveLog
+        if (
+            (target_user.department or "").strip()
+            in LEAVE_EXCLUDED_DEPARTMENTS
+        ):
+            alt_total = 0.0
+            alt_log_rows = []
 
-        logs = (
-            AltLeaveLog.query
-            .order_by(AltLeaveLog.apply_date.desc())
-            .all()
+        else:
+            recipients = (
+                AltLeaveRecipient.query
+                .filter_by(user_id=target_user.id)
+                .all()
+            )
+
+            alt_total = round(
+                sum(
+                    float(r.add_days or 0)
+                    for r in recipients
+                ),
+                2
+            )
+
+            # ✅ 개인 대체연차 부여 이력
+            alt_log_rows = []
+
+            for recipient in recipients:
+                log = recipient.log
+
+                if not log:
+                    continue
+
+                alt_log_rows.append({
+                    "grant_date": log.grant_date,
+                    "apply_date": log.apply_date,
+                    "reason": log.reason,
+                    "add_days": recipient.add_days,
+                    "granted_by": log.granted_by,
+                    "department_summary": log.department_summary,
+                })
+
+            # ✅ 최근 적용일자 순
+            alt_log_rows.sort(
+                key=lambda row: (
+                    row["apply_date"] or date.min,
+                    row["grant_date"] or datetime.min,
+                ),
+                reverse=True,
+            )
+
+    except Exception as e:
+        print(
+            "⚠️ 대체연차 지급이력 조회 오류:",
+            target_user.id,
+            e
         )
 
-        from app.models import alt_leave_log_has_user
-
-        emp_logs = [
-            log
-            for log in logs
-            if alt_leave_log_has_user(log, target_user)
-        ]
-
-        alt_total = sum(
-            float(log.add_days or 0)
-            for log in emp_logs
-        )
-
-        # ✅ 모달에서 보여줄 대체연차 부여 이력
-        alt_log_rows = []
-        for log in emp_logs:
-            alt_log_rows.append({
-                "grant_date": log.grant_date,
-                "apply_date": log.apply_date,
-                "reason": log.reason,
-                "add_days": log.add_days,
-                "granted_by": log.granted_by,
-                "department_summary": log.department_summary,
-            })
-
-    except Exception:
         alt_total = 0.0
         alt_log_rows = []
 
-    # ✅ 이제 대체연차 우선 차감이 아니라
-    # ✅ is_alt=True 인 휴가만 대체연차 사용으로 계산
-    alt_left = round(float(alt_total or 0) - alt_used_total, 2)
-    annual_left = round(float(total_leave or 0) - annual_used_total, 2)
+    # =====================================================
+    # ✅ 잔여 연차 / 대체연차
+    # =====================================================
+    leave_excluded = (
+        (target_user.department or "").strip()
+        in LEAVE_EXCLUDED_DEPARTMENTS
+    )
+
+    if leave_excluded:
+        # 병동 / 의료진은 연차시스템 대상 제외
+        total_leave = 0.0
+        used_before = 0.0
+        used_total = 0.0
+
+        approved_used_from_events = 0.0
+        alt_used_total = 0.0
+        annual_used_total = 0.0
+
+        alt_total = 0.0
+        alt_left = 0.0
+        annual_left = 0.0
+
+        annual_breakdown_rows = []
+        annual_breakdown_total = 0.0
+
+    else:
+        # ✅ 대체연차
+        alt_left = round(
+            float(alt_total or 0)
+            - float(alt_used_total or 0),
+            2
+        )
+
+        # ✅ 일반 연차
+        annual_left = round(
+            float(total_leave or 0)
+            - float(annual_used_total or 0),
+            2
+        )
 
     summary = {
         "total_leave": total_leave,
