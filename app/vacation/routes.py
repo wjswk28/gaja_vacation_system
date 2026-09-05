@@ -2,10 +2,10 @@ from flask import (request, Blueprint, render_template, redirect, url_for, flash
 from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
 from app.vacation import vacation_bp
-from app.models import User, Vacation, MonthLock
+from app.models import User, Vacation, MonthLock, AltLeaveRecipient
 from app import db
 from app.models import now_kst
-from sqlalchemy import or_, func
+from sqlalchemy import or_, and_, func
 
 
 # =======================================================
@@ -23,6 +23,80 @@ DEDUCTION_MAP = {
     "토연차": 0.75,
     "일정": 0,
 }
+
+LEAVE_EXCLUDED_DEPARTMENTS = {
+    "병동",
+    "의료진",
+}
+
+def _get_alt_leave_balance(user_id: int) -> float:
+    """
+    대체연차 현재 잔여량
+
+    총 부여:
+        AltLeaveRecipient.user_id 기준
+
+    총 사용:
+        Vacation.is_alt == True 인 승인 휴가 기준
+
+    잔여:
+        총 부여 - 총 사용
+    """
+
+    user = User.query.get(user_id)
+
+    if not user:
+        return 0.0
+
+    # ✅ 병동 / 의료진은 연차 시스템 제외
+    if (user.department or "").strip() in LEAVE_EXCLUDED_DEPARTMENTS:
+        return 0.0
+
+    # -----------------------------
+    # 1) 총 부여 대체연차
+    # -----------------------------
+    recipients = (
+        AltLeaveRecipient.query
+        .filter_by(user_id=user_id)
+        .all()
+    )
+
+    granted = sum(
+        float(r.add_days or 0)
+        for r in recipients
+    )
+
+    # -----------------------------
+    # 2) 실제 사용 대체연차
+    # -----------------------------
+    alt_vacations = (
+        Vacation.query
+        .filter(
+            Vacation.approved == True,
+            Vacation.is_alt == True,
+            or_(
+                Vacation.target_user_id == user_id,
+                and_(
+                    Vacation.target_user_id.is_(None),
+                    Vacation.user_id == user_id
+                )
+            )
+        )
+        .all()
+    )
+
+    used = 0.0
+
+    for vac in alt_vacations:
+        used += DEDUCTION_MAP.get(
+            (vac.type or "").strip(),
+            0.0
+        )
+
+    return round(
+        float(granted) - float(used),
+        2
+    )
 
 # =======================================================
 # ✅ 공용: 월 확정(잠금) 체크
@@ -415,16 +489,26 @@ def _refund_days_for_event(event: Vacation):
     if deduction <= 0:
         return
 
-    # 대상자 찾기
-    target_user = event.target_user or User.query.get(event.target_user_id) or User.query.get(event.user_id)
+    target_user = (
+        event.target_user
+        or User.query.get(event.target_user_id)
+        or User.query.get(event.user_id)
+    )
+
     if not target_user:
         return
 
-    # ✅ 대체연차로 전환된 이벤트면 alt_leave 환급, 아니면 remaining_days 환급
+    # ✅ 대체연차는 별도 잔액필드를 환급하지 않음
+    # Vacation 행이 삭제되면 is_alt 사용량에서도 자동으로 빠지므로
+    # 계산상 잔여 대체연차가 자동 복구됨
     if bool(getattr(event, "is_alt", False)):
-        target_user.alt_leave = float(target_user.alt_leave or 0) + deduction
-    else:
-        target_user.remaining_days = float(target_user.remaining_days or 0) + deduction
+        return
+
+    # 기존 일반 연차 DB 필드는 일단 기존 동작 유지
+    target_user.remaining_days = (
+        float(target_user.remaining_days or 0)
+        + deduction
+    )
 
 # =======================================================
 # 휴가 삭제
@@ -516,15 +600,48 @@ def convert_to_alt(event_id):
     if not target_user:
         return jsonify({"status": "error", "message": "대상 직원을 찾을 수 없습니다."}), 400
 
-    alt = float(target_user.alt_leave or 0)
-    if alt < deduction:
-        return jsonify({"status": "error", "message": "대체연차가 부족합니다."}), 400
+    # =======================================================
+    # ✅ 연차 시스템 제외 부서 차단
+    # =======================================================
+    if (
+        (target_user.department or "").strip()
+        in LEAVE_EXCLUDED_DEPARTMENTS
+    ):
+        return jsonify({
+            "status": "error",
+            "message": "병동과 의료진은 연차/대체연차 시스템 대상이 아닙니다."
+        }), 400
 
-    remain = float(target_user.remaining_days or 0)
-    target_user.remaining_days = max(-999, remain + deduction)
-    target_user.alt_leave = alt - deduction
 
+    # =======================================================
+    # ✅ 실제 잔여 대체연차 계산
+    # AltLeaveRecipient 총 부여 - Vacation.is_alt 총 사용
+    # =======================================================
+    alt_balance = _get_alt_leave_balance(
+        target_user.id
+    )
+
+    if alt_balance < deduction:
+        return jsonify({
+            "status": "error",
+            "message": (
+                f"대체연차가 부족합니다. "
+                f"(잔여 {alt_balance:.2f}일 / 필요 {deduction:.2f}일)"
+            )
+        }), 400
+
+
+    # =======================================================
+    # ✅ 일반 연차 → 대체연차로 전환
+    # =======================================================
     event.is_alt = True
+
+    # User.alt_leave는 더 이상 사용/차감하지 않음
+    #
+    # 직원관리·내정보에서
+    # Vacation.is_alt=True가 자동으로 대체연차 사용량에 포함된다.
+
+    db.session.commit()
 
     db.session.commit()
     return jsonify({"status": "success", "message": "대체연차로 변경되었습니다."}), 200
