@@ -3,10 +3,19 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from datetime import datetime
 from app import db
-from app.models import User, AltLeaveLog
+from app.models import User, AltLeaveLog, AltLeaveRecipient
 
 altleave_bp = Blueprint("altleave", __name__, url_prefix="/altleave")
 
+# =====================================================
+# 연차/대체연차 시스템 제외 부서
+# - 직원 등록 및 기타 일정 기능은 사용 가능
+# - 연차/대체연차 계산 및 부여 대상에서는 제외
+# =====================================================
+LEAVE_EXCLUDED_DEPARTMENTS = {
+    "병동",
+    "의료진",
+}
 
 # ==========================
 # 대체연차 부여 페이지
@@ -28,6 +37,12 @@ def grant_alt_leave():
         .order_by(User.department, User.name)
         .all()
     )
+
+    users = [
+        u for u in users
+        if (u.department or "").strip()
+        not in LEAVE_EXCLUDED_DEPARTMENTS
+    ]
 
     users_by_dept = {}
     for u in users:
@@ -67,6 +82,22 @@ def grant_alt_leave():
             .all()
         )
 
+        # ✅ 연차 시스템 제외 부서는 대체연차 부여 불가
+        excluded_selected = [
+            u for u in selected_users
+            if (u.department or "").strip()
+            in LEAVE_EXCLUDED_DEPARTMENTS
+        ]
+
+        if excluded_selected:
+            flash(
+                "병동과 의료진은 연차/대체연차 시스템 대상이 아닙니다.",
+                "error"
+            )
+            return redirect(
+                url_for("altleave.grant_alt_leave")
+            )
+
         if len(selected_users) != len(set(user_ids)):
             flash(
                 "재직중인 직원에게만 대체연차를 부여할 수 있습니다.",
@@ -83,11 +114,9 @@ def grant_alt_leave():
             [f"{dept}({', '.join(names)})" for dept, names in dept_map.items()]
         )
 
-        # 1) 각 사용자에게 alt_leave 부여
-        for u in selected_users:
-            u.alt_leave = (u.alt_leave or 0) + add_days
-
-        # 2) 로그는 지급건 1건만 생성
+        # =====================================================
+        # 대체연차 지급 로그 생성
+        # =====================================================
         log = AltLeaveLog(
             apply_date=apply_date,
             reason=reason,
@@ -95,7 +124,36 @@ def grant_alt_leave():
             granted_by=current_user.name,
             department_summary=dept_summary
         )
+
         db.session.add(log)
+
+        # ✅ INSERT 전에 log.id를 받기 위해 flush
+        # commit은 아직 하지 않음
+        db.session.flush()
+
+
+        # =====================================================
+        # 실제 지급 대상자를 user_id로 저장
+        # =====================================================
+        for u in selected_users:
+            recipient = AltLeaveRecipient(
+                log_id=log.id,
+                user_id=u.id,
+                add_days=add_days,
+            )
+
+            db.session.add(recipient)
+
+
+        # ✅ User.alt_leave는 더 이상 수정하지 않는다.
+        # 잔여 대체연차는 앞으로
+        #
+        # AltLeaveRecipient 총 부여
+        # -
+        # Vacation.is_alt 실제 사용
+        #
+        # 으로 계산한다.
+
         db.session.commit()
 
         flash(f"{len(selected_users)}명에게 대체연차 {add_days}일을 부여했습니다.", "success")
@@ -125,8 +183,18 @@ def delete_log(log_id):
 
     log = AltLeaveLog.query.get_or_404(log_id)
 
-    # 삭제
+    # =====================================================
+    # 해당 지급건의 실제 대상자 연결 먼저 삭제
+    # =====================================================
+    AltLeaveRecipient.query.filter_by(
+        log_id=log.id
+    ).delete(
+        synchronize_session=False
+    )
+
+    # 지급 로그 삭제
     db.session.delete(log)
+
     db.session.commit()
 
     flash("대체연차 이력이 삭제되었습니다.", "success")
