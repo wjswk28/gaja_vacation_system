@@ -218,8 +218,14 @@ def employee_list():
         try:
             from app.leave_utils import calculate_annual_leave
             total_leave = calculate_annual_leave(emp.join_date)
-        except Exception:
-            total_leave = float(emp.remaining_days or 0.0)
+        except Exception as e:
+            print(
+                "⚠️ 연차 발생 계산 오류:",
+                emp.id,
+                emp.name,
+                e
+            )
+            total_leave = 0.0
     
         # 도입 전 사용 연차
         used_before = float(emp.used_before_system or 0.0)
@@ -602,8 +608,14 @@ def employee_vacation_history(emp_id):
     try:
         from app.leave_utils import calculate_annual_leave
         total_leave = calculate_annual_leave(target_user.join_date)
-    except Exception:
-        total_leave = float(target_user.remaining_days or 0.0)
+    except Exception as e:
+        print(
+            "⚠️ 연차 발생 계산 오류:",
+            target_user.id,
+            target_user.name,
+            e
+        )
+        total_leave = 0.0
 
     # ✅ 총 발생 연차 상세 계산 내역
     annual_breakdown_rows, annual_breakdown_total = build_annual_leave_breakdown(
