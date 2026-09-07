@@ -13,6 +13,7 @@ from sqlalchemy import or_, and_, func
 # =======================================================
 DEDUCTION_MAP = {
     "연차": 1.0,
+    "반차": 0.5,
     "반차(전)": 0.5,
     "반차(후)": 0.5,
     "반반차": 0.25,
@@ -459,12 +460,6 @@ def approve_event(event_id):
 
     event = Vacation.query.get_or_404(event_id)
 
-    # ✅ 승인된 휴가만 대체연차로 변경 가능
-    if not bool(event.approved):
-        return jsonify({
-            "status": "error",
-            "message": "승인된 휴가만 대체연차로 변경할 수 있습니다."
-        }), 400
     
     # ✅ 중간관리자면 자기 부서만 승인 가능
     if current_user.is_admin and (not current_user.is_superadmin):
@@ -550,6 +545,13 @@ def convert_to_alt(event_id):
         return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
 
     event = Vacation.query.get_or_404(event_id)
+
+    # ✅ 승인된 휴가만 대체연차로 변경 가능
+    if not bool(event.approved):
+        return jsonify({
+            "status": "error",
+            "message": "승인된 휴가만 대체연차로 변경할 수 있습니다."
+        }), 400   
 
     # ✅ 월 잠금 체크 (총관리자만 수정 가능 정책이면 _block_if_locked가 알아서 처리)
     blocked = _block_if_locked(event.department, event.start_date)
