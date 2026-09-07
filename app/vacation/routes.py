@@ -559,7 +559,7 @@ def convert_to_alt(event_id):
         return blocked
     
     # ✅ 연차류만 대체연차로 전환 허용 (원하는 타입만)
-    CONVERTIBLE_TYPES = {"연차", "반차(전)", "반차(후)", "반반차", "토연차"}
+    CONVERTIBLE_TYPES = {"연차", "반차", "반차(전)", "반차(후)", "반반차", "토연차"}
     if (event.type or "").strip() not in CONVERTIBLE_TYPES:
         return jsonify({"status": "error", "message": "대체연차로 변경할 수 없는 일정입니다."}), 400
 
