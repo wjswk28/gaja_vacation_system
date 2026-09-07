@@ -419,21 +419,14 @@ def add_event():
         db.session.add(new_event)
 
         # =======================================================
-        # 🟦 연차 차감: ✅ 기본은 '일반 연차(remaining_days)'만 차감
+        # ✅ 신규 휴가는 기본적으로 일반 연차
+        #
+        # 실제 잔여 연차는
+        # 총 발생 연차 - 승인된 일반연차 사용량
+        # 으로 계산하므로 remaining_days는 직접 변경하지 않는다.
         # =======================================================
-        deduction = DEDUCTION_MAP.get(vac_type, 0)
-
-        try:
-            if deduction > 0:
-                remain = float(target_user.remaining_days or 0)
-                target_user.remaining_days = max(-999, remain - deduction)
-
-                # ✅ 새로 등록되는 휴가는 기본적으로 '대체연차 아님'
-                if hasattr(new_event, "is_alt"):
-                    new_event.is_alt = False
-
-        except Exception as e:
-            print("⚠️ 연차 차감 오류:", e)
+        if hasattr(new_event, "is_alt"):
+            new_event.is_alt = False
 
         db.session.commit()
 
@@ -465,6 +458,13 @@ def approve_event(event_id):
 
 
     event = Vacation.query.get_or_404(event_id)
+
+    # ✅ 승인된 휴가만 대체연차로 변경 가능
+    if not bool(event.approved):
+        return jsonify({
+            "status": "error",
+            "message": "승인된 휴가만 대체연차로 변경할 수 있습니다."
+        }), 400
     
     # ✅ 중간관리자면 자기 부서만 승인 가능
     if current_user.is_admin and (not current_user.is_superadmin):
@@ -484,31 +484,6 @@ def approve_event(event_id):
 
     return jsonify({"status": "success", "message": "승인되었습니다."})
 
-def _refund_days_for_event(event: Vacation):
-    deduction = DEDUCTION_MAP.get(event.type or "", 0)
-    if deduction <= 0:
-        return
-
-    target_user = (
-        event.target_user
-        or User.query.get(event.target_user_id)
-        or User.query.get(event.user_id)
-    )
-
-    if not target_user:
-        return
-
-    # ✅ 대체연차는 별도 잔액필드를 환급하지 않음
-    # Vacation 행이 삭제되면 is_alt 사용량에서도 자동으로 빠지므로
-    # 계산상 잔여 대체연차가 자동 복구됨
-    if bool(getattr(event, "is_alt", False)):
-        return
-
-    # 기존 일반 연차 DB 필드는 일단 기존 동작 유지
-    target_user.remaining_days = (
-        float(target_user.remaining_days or 0)
-        + deduction
-    )
 
 # =======================================================
 # 휴가 삭제
@@ -535,10 +510,9 @@ def delete_event(event_id):
     if is_mine:
         was_approved = bool(event.approved)
 
-        _refund_days_for_event(event)   # ✅ 추가
+
         db.session.delete(event)
         db.session.commit()
-
         return jsonify({
             "status": "success",
             "message": "승인된 휴가가 삭제되었습니다." if was_approved else "신청이 취소되었습니다."
@@ -549,7 +523,6 @@ def delete_event(event_id):
         # (위에서 탄력근무는 이미 차단했지만, 안전하게 한 번 더)
         if event.type == "탄력근무":
             return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
-        _refund_days_for_event(event)   # ✅ 추가
         db.session.delete(event)
         db.session.commit()
         return jsonify({"status": "success", "message": "일정이 삭제되었습니다."}), 200
@@ -558,7 +531,6 @@ def delete_event(event_id):
         # ✅ 중간관리자는 자기 부서 일정만 삭제 가능
         if (event.department or "").strip() != (current_user.department or "").strip():
             return jsonify({"status": "error", "message": "다른 부서 일정은 삭제할 수 없습니다."}), 403
-        _refund_days_for_event(event)   # ✅ 추가
         db.session.delete(event)
         db.session.commit()
         return jsonify({"status": "success", "message": "일정이 삭제되었습니다."}), 200
@@ -642,8 +614,6 @@ def convert_to_alt(event_id):
     # Vacation.is_alt=True가 자동으로 대체연차 사용량에 포함된다.
 
     db.session.commit()
-
-    db.session.commit()
     return jsonify({"status": "success", "message": "대체연차로 변경되었습니다."}), 200
 
 
@@ -682,6 +652,9 @@ def approve_vacation(vac_id):
         return jsonify({"status": "error", "message": "권한이 없습니다."}), 403
 
     vac = Vacation.query.get(vac_id)
+
+    if not vac:
+        return jsonify({"status": "error", "message": "휴가를 찾을 수 없습니다."}), 404
     
     # ✅ 중간관리자면 자기 부서만 승인 가능
     if current_user.is_admin and (not current_user.is_superadmin):
@@ -692,8 +665,6 @@ def approve_vacation(vac_id):
     if current_user.is_superadmin and vac.type == "탄력근무":
         return jsonify({"status": "error", "message": "총관리자는 탄력근무를 처리할 수 없습니다."}), 403
 
-    if not vac:
-        return jsonify({"status": "error", "message": "휴가를 찾을 수 없습니다."}), 404
     blocked = _block_if_locked(vac.department, vac.start_date)
     if blocked:
         return blocked
