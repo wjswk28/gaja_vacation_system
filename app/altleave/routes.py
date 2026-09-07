@@ -3,19 +3,70 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from datetime import datetime
 from app import db
-from app.models import User, AltLeaveLog, AltLeaveRecipient
+from app.models import (
+    User,
+    Vacation,
+    AltLeaveLog,
+    AltLeaveRecipient,
+)
+from sqlalchemy import or_, and_, func
 
 altleave_bp = Blueprint("altleave", __name__, url_prefix="/altleave")
 
 # =====================================================
-# 연차/대체연차 시스템 제외 부서
-# - 직원 등록 및 기타 일정 기능은 사용 가능
-# - 연차/대체연차 계산 및 부여 대상에서는 제외
+# 대체연차 사용 일수
 # =====================================================
-LEAVE_EXCLUDED_DEPARTMENTS = {
-    "병동",
-    "의료진",
+ALT_LEAVE_DAY_MAP = {
+    "연차": 1.0,
+    "반차": 0.5,       # 과거 데이터 호환
+    "반차(전)": 0.5,
+    "반차(후)": 0.5,
+    "반반차": 0.25,
+    "토연차": 0.75,
 }
+
+
+def _get_used_alt_leave_days(user_id):
+    """
+    직원별 실제 대체연차 사용량
+
+    기준:
+    - 승인된 휴가
+    - is_alt=True
+    - target_user_id 우선
+    - 과거 데이터는 target_user_id가 NULL일 때 user_id 사용
+    """
+
+    events = (
+        Vacation.query
+        .filter(
+            Vacation.approved.is_(True),
+            Vacation.is_alt.is_(True),
+            Vacation.type.in_(
+                list(ALT_LEAVE_DAY_MAP.keys())
+            ),
+            or_(
+                Vacation.target_user_id == user_id,
+                and_(
+                    Vacation.target_user_id.is_(None),
+                    Vacation.user_id == user_id,
+                )
+            )
+        )
+        .all()
+    )
+
+    used_days = sum(
+        float(
+            ALT_LEAVE_DAY_MAP.get(
+                (event.type or "").strip(),
+                0.0
+            )
+        )
+        for event in events
+    )
+
+    return round(used_days, 2)
 
 # ==========================
 # 대체연차 부여 페이지
@@ -37,12 +88,6 @@ def grant_alt_leave():
         .order_by(User.department, User.name)
         .all()
     )
-
-    users = [
-        u for u in users
-        if (u.department or "").strip()
-        not in LEAVE_EXCLUDED_DEPARTMENTS
-    ]
 
     users_by_dept = {}
     for u in users:
@@ -81,22 +126,6 @@ def grant_alt_leave():
             .filter(User.is_superadmin == False)
             .all()
         )
-
-        # ✅ 연차 시스템 제외 부서는 대체연차 부여 불가
-        excluded_selected = [
-            u for u in selected_users
-            if (u.department or "").strip()
-            in LEAVE_EXCLUDED_DEPARTMENTS
-        ]
-
-        if excluded_selected:
-            flash(
-                "병동과 의료진은 연차/대체연차 시스템 대상이 아닙니다.",
-                "error"
-            )
-            return redirect(
-                url_for("altleave.grant_alt_leave")
-            )
 
         if len(selected_users) != len(set(user_ids)):
             flash(
@@ -169,33 +198,201 @@ def grant_alt_leave():
         users_by_dept=users_by_dept,
         logs=logs,
     )
+
+
 # ==========================
-# 대체연차 이력 삭제
+# 대체연차 지급이력 삭제
 # ==========================
 @altleave_bp.route("/delete/<int:log_id>", methods=["POST"])
 @login_required
 def delete_log(log_id):
 
-    # 최고관리자만 삭제 가능
+    # ✅ 총관리자만 삭제 가능
     if not current_user.is_superadmin:
-        flash("삭제 권한이 없습니다.", "error")
-        return redirect(url_for("altleave.grant_alt_leave"))
+        flash(
+            "삭제 권한이 없습니다.",
+            "error"
+        )
+        return redirect(
+            url_for("altleave.grant_alt_leave")
+        )
 
     log = AltLeaveLog.query.get_or_404(log_id)
 
     # =====================================================
-    # 해당 지급건의 실제 대상자 연결 먼저 삭제
+    # 1) 이 지급건의 실제 대상자 조회
     # =====================================================
-    AltLeaveRecipient.query.filter_by(
-        log_id=log.id
-    ).delete(
-        synchronize_session=False
+    recipients = (
+        AltLeaveRecipient.query
+        .filter_by(log_id=log.id)
+        .all()
     )
 
-    # 지급 로그 삭제
-    db.session.delete(log)
+    blocked_users = []
 
-    db.session.commit()
+    # =====================================================
+    # 과거 이관 전 로그 등 Recipient 정보가 없는 경우
+    # 자동 안전검사가 불가능하므로 삭제 차단
+    # =====================================================
+    if not recipients:
+        flash(
+            "이 지급이력은 실제 지급 대상자 정보가 없어 "
+            "안전하게 삭제 여부를 확인할 수 없습니다.",
+            "error"
+        )
+        return redirect(
+            url_for("altleave.grant_alt_leave")
+        )
 
-    flash("대체연차 이력이 삭제되었습니다.", "success")
-    return redirect(url_for("altleave.grant_alt_leave"))
+    blocked_users = []
+
+    # =====================================================
+    # 2) 직원별 삭제 가능 여부 검사
+    # =====================================================
+    for recipient in recipients:
+
+        user_id = recipient.user_id
+
+        delete_days = float(
+            recipient.add_days or 0.0
+        )
+
+        # ---------------------------------------------
+        # 현재까지 총 부여된 대체연차
+        # ---------------------------------------------
+        total_granted = (
+            db.session.query(
+                func.coalesce(
+                    func.sum(
+                        AltLeaveRecipient.add_days
+                    ),
+                    0.0
+                )
+            )
+            .filter(
+                AltLeaveRecipient.user_id == user_id
+            )
+            .scalar()
+        )
+
+        total_granted = float(
+            total_granted or 0.0
+        )
+
+        # ---------------------------------------------
+        # 이 지급건을 삭제했을 때 남는 총 부여량
+        # ---------------------------------------------
+        granted_after_delete = round(
+            total_granted - delete_days,
+            2
+        )
+
+        # ---------------------------------------------
+        # 현재 실제 사용한 대체연차
+        # ---------------------------------------------
+        used_alt = _get_used_alt_leave_days(
+            user_id
+        )
+
+        # ---------------------------------------------
+        # 삭제 후 부여량보다 이미 사용한 양이 많으면
+        # 지급이력 삭제 불가
+        # ---------------------------------------------
+        if granted_after_delete < used_alt - 0.000001:
+
+            user = (
+                recipient.user
+                or db.session.get(User, user_id)
+            )
+
+            if user:
+                user_name = (
+                    user.name
+                    or user.username
+                    or f"user_id={user_id}"
+                )
+
+                department = (
+                    user.department
+                    or "부서없음"
+                )
+
+            else:
+                user_name = f"user_id={user_id}"
+                department = "직원정보없음"
+
+            blocked_users.append({
+                "department": department,
+                "name": user_name,
+                "granted_after": granted_after_delete,
+                "used": used_alt,
+            })
+
+    # =====================================================
+    # 3) 한 명이라도 문제가 있으면
+    #    지급건 전체 삭제 차단
+    # =====================================================
+    if blocked_users:
+
+        preview = blocked_users[:5]
+
+        detail = ", ".join(
+            (
+                f"{row['department']} {row['name']} "
+                f"(삭제 후 부여 "
+                f"{row['granted_after']:.2f}일 / "
+                f"사용 {row['used']:.2f}일)"
+            )
+            for row in preview
+        )
+
+        if len(blocked_users) > 5:
+            detail += (
+                f" 외 {len(blocked_users) - 5}명"
+            )
+
+        flash(
+            "이 지급이력은 삭제할 수 없습니다. "
+            "삭제하면 이미 사용한 대체연차보다 "
+            "총 부여량이 적어지는 직원이 있습니다. "
+            + detail,
+            "error"
+        )
+
+        return redirect(
+            url_for("altleave.grant_alt_leave")
+        )
+
+    # =====================================================
+    # 4) 안전한 경우에만 실제 삭제
+    # =====================================================
+    try:
+        db.session.delete(log)
+        db.session.commit()
+
+    except Exception as e:
+
+        db.session.rollback()
+
+        print(
+            "❌ 대체연차 지급이력 삭제 오류:",
+            e
+        )
+
+        flash(
+            "대체연차 지급이력 삭제 중 오류가 발생했습니다.",
+            "error"
+        )
+
+        return redirect(
+            url_for("altleave.grant_alt_leave")
+        )
+
+    flash(
+        "대체연차 지급이력이 삭제되었습니다.",
+        "success"
+    )
+
+    return redirect(
+        url_for("altleave.grant_alt_leave")
+    )
