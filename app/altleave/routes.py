@@ -14,6 +14,17 @@ from sqlalchemy import or_, and_, func
 altleave_bp = Blueprint("altleave", __name__, url_prefix="/altleave")
 
 # =====================================================
+# 현재 연차 / 대체연차 시스템 미사용 부서
+#
+# 나중에 병동·의료진 기능을 활성화할 경우
+# 이 목록에서 제거하면 됨
+# =====================================================
+LEAVE_EXCLUDED_DEPARTMENTS = {
+    "병동",
+    "의료진",
+}
+
+# =====================================================
 # 대체연차 사용 일수
 # =====================================================
 ALT_LEAVE_DAY_MAP = {
@@ -89,6 +100,12 @@ def grant_alt_leave():
         .all()
     )
 
+    users = [
+        u for u in users
+        if (u.department or "").strip()
+        not in LEAVE_EXCLUDED_DEPARTMENTS
+    ]
+
     users_by_dept = {}
     for u in users:
         dept = u.department or "기타"
@@ -126,6 +143,21 @@ def grant_alt_leave():
             .filter(User.is_superadmin == False)
             .all()
         )
+
+        excluded_selected = [
+            u for u in selected_users
+            if (u.department or "").strip()
+            in LEAVE_EXCLUDED_DEPARTMENTS
+        ]
+
+        if excluded_selected:
+            flash(
+                "현재 병동과 의료진은 연차/대체연차 시스템을 사용하지 않습니다.",
+                "error"
+            )
+            return redirect(
+                url_for("altleave.grant_alt_leave")
+            )
 
         if len(selected_users) != len(set(user_ids)):
             flash(
