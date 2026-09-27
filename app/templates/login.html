@@ -272,6 +272,73 @@
             });
         }
     });
+
+    // =========================================
+    // 🧪 임시 PC 원격제어 테스트
+    // 버튼 → Render 서버 통신 확인
+    // 테스트 완료 후 삭제
+    // =========================================
+    const remotePcTestBtn =
+        document.getElementById("remotePcTestBtn");
+
+    if (remotePcTestBtn) {
+
+        remotePcTestBtn.addEventListener("click", async function () {
+
+            const originalText = remotePcTestBtn.innerText;
+
+            remotePcTestBtn.disabled = true;
+            remotePcTestBtn.innerText = "...";
+
+            try {
+
+                const response = await fetch(
+                    "{{ url_for('auth.remote_test_command') }}",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            command: "open_notepad"
+                        })
+                    }
+                );
+
+                const result = await response.json();
+
+                if (response.ok && result.ok) {
+
+                    alert(
+                        "✅ PC 테스트 1단계 성공\n\n" +
+                        result.message
+                    );
+
+                } else {
+
+                    alert(
+                        "❌ 테스트 실패\n\n" +
+                        (result.message || "알 수 없는 오류")
+                    );
+                }
+
+            } catch (error) {
+
+                console.error(error);
+
+                alert(
+                    "❌ Render 서버와 통신하지 못했습니다."
+                );
+
+            } finally {
+
+                remotePcTestBtn.disabled = false;
+                remotePcTestBtn.innerText = originalText;
+            }
+        });
+    }
+
+
   </script>
 
 </body>
