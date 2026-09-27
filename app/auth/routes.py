@@ -1,3 +1,6 @@
+import os
+import json
+
 from flask import (
     render_template,
     request,
@@ -7,7 +10,9 @@ from flask import (
     flash,
     make_response,
     jsonify,
+    current_app,
 )
+
 from flask_login import (
     login_user,
     login_required,
@@ -119,30 +124,133 @@ def login():
 
 # =====================================================
 # 🧪 임시 PC 원격제어 테스트
-# 로그인 화면 버튼 → Render 서버 도달 여부만 확인
+# Render ↔ 병원 PC 연결 확인용
 # 테스트 완료 후 삭제
 # =====================================================
+
+def _remote_test_file():
+    return os.path.join(
+        current_app.config["STORAGE_ROOT"],
+        "remote_test_command.json"
+    )
+
+
+# -----------------------------------------------------
+# 로그인 화면 버튼 → 명령 저장
+# -----------------------------------------------------
 @auth_bp.route("/remote-test/command", methods=["POST"])
 def remote_test_command():
     data = request.get_json(silent=True) or {}
 
     command = (data.get("command") or "").strip()
+    pin = (data.get("pin") or "").strip()
 
-    # 테스트에서는 이 명령 하나만 허용
+    expected_pin = os.environ.get("REMOTE_TEST_PIN", "").strip()
+
+    # PIN 설정 여부 + 일치 여부 확인
+    if not expected_pin or pin != expected_pin:
+        return jsonify({
+            "ok": False,
+            "message": "테스트 PIN이 올바르지 않습니다."
+        }), 403
+
+    # 테스트에서는 메모장 실행만 허용
     if command != "open_notepad":
         return jsonify({
             "ok": False,
             "message": "허용되지 않은 테스트 명령입니다."
         }), 400
 
-    print("=" * 50)
-    print("🧪 REMOTE PC TEST")
-    print("명령 수신: open_notepad")
-    print("=" * 50)
+    command_data = {
+        "command": "open_notepad",
+        "status": "pending"
+    }
+
+    with open(
+        _remote_test_file(),
+        "w",
+        encoding="utf-8"
+    ) as f:
+        json.dump(
+            command_data,
+            f,
+            ensure_ascii=False,
+            indent=2
+        )
+
+    print("🧪 PC 명령 저장: open_notepad")
 
     return jsonify({
         "ok": True,
-        "message": "Render 서버가 PC 테스트 명령을 정상적으로 받았습니다."
+        "message": "PC에 메모장 실행 명령을 저장했습니다."
+    })
+
+
+# -----------------------------------------------------
+# 병원 PC Agent → 명령 확인
+# -----------------------------------------------------
+@auth_bp.route("/remote-test/agent-poll", methods=["GET"])
+def remote_test_agent_poll():
+
+    token = (
+        request.headers.get("X-PC-AGENT-TOKEN", "")
+        or ""
+    ).strip()
+
+    expected_token = (
+        os.environ.get("PC_AGENT_TOKEN", "")
+        or ""
+    ).strip()
+
+    if not expected_token or token != expected_token:
+        return jsonify({
+            "ok": False,
+            "message": "인증 실패"
+        }), 403
+
+    path = _remote_test_file()
+
+    # 아직 명령 없음
+    if not os.path.exists(path):
+        return jsonify({
+            "ok": True,
+            "command": None
+        })
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            command_data = json.load(f)
+    except Exception:
+        return jsonify({
+            "ok": True,
+            "command": None
+        })
+
+    # 이미 PC가 가져간 명령
+    if command_data.get("status") != "pending":
+        return jsonify({
+            "ok": True,
+            "command": None
+        })
+
+    command = command_data.get("command")
+
+    # 가져간 것으로 표시
+    command_data["status"] = "dispatched"
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            command_data,
+            f,
+            ensure_ascii=False,
+            indent=2
+        )
+
+    print(f"🖥️ PC Agent가 명령 가져감: {command}")
+
+    return jsonify({
+        "ok": True,
+        "command": command
     })
     
 
