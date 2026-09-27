@@ -292,6 +292,14 @@
 
             try {
 
+                const pin = prompt("PC 테스트 PIN을 입력하세요.");
+
+                if (!pin) {
+                    remotePcTestBtn.disabled = false;
+                    remotePcTestBtn.innerText = originalText;
+                    return;
+                }
+
                 const response = await fetch(
                     "{{ url_for('auth.remote_test_command') }}",
                     {
@@ -300,7 +308,8 @@
                             "Content-Type": "application/json"
                         },
                         body: JSON.stringify({
-                            command: "open_notepad"
+                            command: "open_notepad",
+                            pin: pin
                         })
                     }
                 );
@@ -310,7 +319,7 @@
                 if (response.ok && result.ok) {
 
                     alert(
-                        "✅ PC 테스트 1단계 성공\n\n" +
+                        "✅ PC 테스트 성공\n\n" +
                         result.message
                     );
 
