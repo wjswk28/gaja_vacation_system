@@ -6,6 +6,7 @@ from flask import (
     session,
     flash,
     make_response,
+    jsonify,
 )
 from flask_login import (
     login_user,
@@ -115,6 +116,35 @@ def login():
     saved_username = request.cookies.get("saved_username", "")
     return render_template("login.html", error=error, saved_username=saved_username)
 
+
+# =====================================================
+# 🧪 임시 PC 원격제어 테스트
+# 로그인 화면 버튼 → Render 서버 도달 여부만 확인
+# 테스트 완료 후 삭제
+# =====================================================
+@auth_bp.route("/remote-test/command", methods=["POST"])
+def remote_test_command():
+    data = request.get_json(silent=True) or {}
+
+    command = (data.get("command") or "").strip()
+
+    # 테스트에서는 이 명령 하나만 허용
+    if command != "open_notepad":
+        return jsonify({
+            "ok": False,
+            "message": "허용되지 않은 테스트 명령입니다."
+        }), 400
+
+    print("=" * 50)
+    print("🧪 REMOTE PC TEST")
+    print("명령 수신: open_notepad")
+    print("=" * 50)
+
+    return jsonify({
+        "ok": True,
+        "message": "Render 서버가 PC 테스트 명령을 정상적으로 받았습니다."
+    })
+    
 
 # =====================
 # 로그아웃
